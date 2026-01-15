@@ -1,27 +1,53 @@
-from typing import Dict, Any
-from agent.orchestrator.models import Plan, StepResult
+from agent.orchestrator.models import StepResult
 from agent.orchestrator.tool_registry import ToolRegistry
 from agent.sandbox.sandbox_runner import Sandbox
 
 
 class Executor:
-    def __init__(self, plan: Plan, tool_registry: ToolRegistry, sandbox: Sandbox):
+    def __init__(self, plan, tool_registry: ToolRegistry, sandbox: Sandbox):
         self.plan = plan
         self.tool_registry = tool_registry
         self.sandbox = sandbox
-        self.results: Dict[str, StepResult] = {}
+        self.context = {}  # store step outputs
 
-    async def run(self) -> Dict[str, StepResult]:
-        # Simple sequential execution for now
+    async def run(self):
+        results = {}
+
         for step in self.plan.steps:
             result = await self.run_step(step)
-            self.results[step.id] = result
-        return self.results
+            results[step.id] = result
 
-    async def run_step(self, step) -> StepResult:
+            # Store output in context for later steps
+            if result.status == "success" and result.output is not None:
+                self.context[step.id] = result.output
+
+        return results
+
+    def resolve_args(self, args):
+        resolved = {}
+        for key, value in args.items():
+            if isinstance(value, str) and value in self.context:
+                resolved[key] = self.context[value]
+            else:
+                resolved[key] = value
+        return resolved
+
+    def inject_python_context(self, code):
+        injected = "from pathlib import Path\nimport os\n"
+        for name, value in self.context.items():
+            injected += f"{name} = {repr(value)}\n"
+        return injected + "\n" + code
+
+    async def run_step(self, step):
         try:
+            # Resolve arguments
+            args = self.resolve_args(step.args)
+
+            # Python execution
             if step.action == "python":
-                out = await self.sandbox.run_python(step.args["code"])
+                code = self.inject_python_context(args["code"])
+                out = await self.sandbox.run_python(code)
+
                 status = "success" if "error" not in out else "error"
                 return StepResult(
                     step_id=step.id,
@@ -30,9 +56,10 @@ class Executor:
                     error=out.get("error"),
                 )
 
-            # Tool-based actions
+            # Tool execution
             tool = self.tool_registry.get(step.action)
-            out = tool(**step.args)
+            out = tool(**args)
+
             return StepResult(step_id=step.id, status="success", output=out)
 
         except Exception as e:

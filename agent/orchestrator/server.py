@@ -3,7 +3,7 @@ from agent.orchestrator.models import TaskRequest, TaskResponse
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
 from agent.orchestrator.tool_registry import ToolRegistry
-from agent.tools import file_tools
+from agent.tools import file_tools, markdown_tools, data_tools, pdf_tools
 from agent.sandbox.sandbox_runner import Sandbox
 import uuid
 
@@ -11,6 +11,10 @@ app = FastAPI()
 
 tool_registry = ToolRegistry()
 tool_registry.register("file_op", file_tools.dispatch)
+tool_registry.register("markdown_op", markdown_tools.dispatch)
+tool_registry.register("data_op", data_tools.dispatch)
+tool_registry.register("pdf_op", pdf_tools.dispatch)
+
 
 sandbox = Sandbox()
 
@@ -25,4 +29,4 @@ async def create_task(task: TaskRequest):
 
     # For now, we just run synchronously and ignore results in response.
     # Later: store by task_id and expose /tasks/{id}/status
-    return TaskResponse(task_id=task_id, plan=plan)
+    return TaskResponse(task_id=task_id, plan=plan, results=results)
