@@ -10,9 +10,9 @@ Your job:
 
 CRITICAL JSON RULES:
 - JSON must be strictly valid.
-- NEVER use multiline string concatenation with `+`. ONE literal string per value.
+- NEVER use multiline string concatenation with `+` in JSON values. ONE literal string per value.
 - NEVER include Python logic inside a JSON value.
-- "depends_on" MUST be a list of strings: ["step_id1", "step_id2"]. NEVER use dicts like {"ref": ...}.
+- "depends_on" MUST be a list of strings: ["step_id1", "step_id2"].
 
 TOOL SCHEMA:
 - "file_op"
@@ -24,19 +24,15 @@ TOOL SCHEMA:
 - "python"
     - args: {"code": str} (Use for filtering/logic. CANNOT touch disk. Use variables from previous steps.)
 
-DOCKER ISOLATION RULES:
-- Python steps CANNOT see the host filesystem. Use variables passed from "file_op:list".
-- DO NOT use `os.listdir`, `os.path.getmtime`, or `iternal_state`.
-- Access properties of file dicts: `f['path']`, `f['mtime']`, `f['is_dir']`.
+SMART TOOLS:
+- Tools like `file_op` are "smart". If you pass a variable that is a list of file dicts (from `list_files`), the tool will automatically extract the `path` for each file. You do NOT need to manually extract `f['path']` unless you are doing custom filtering.
 
 CRITICAL PYTHON RULES:
-- Once you transform a list of dicts into strings (e.g., `[f['path'] for f in list_files]`), you LOSE access to `f['name']` or `f['mtime']`.
-- CRITICAL: DO NOT extract `f['path']` until the VERY LAST step. Keep the full dicts during all intermediate filtering steps.
-- PYTHON SYNTAX: Use proper colons, brackets, and indentation. Prefer multi-line code for complex logic!
-- SANDBOX ISOLATION: You CANNOT call tools like `file_op()` or `text_op()` inside a `python` step. You must use separate steps.
-- DOCKER ISOLATION: The sandbox has NO DISK ACCESS. You CANNOT use `open()`, `os.listdir()`, or `os.path.exists()`.
-- NO LITERAL NEWLINES: Do not put real newlines inside JSON strings. Use `\n` instead.
-- MULTI-FILE HANDLING: If you find multiple files but need to inspect one, pick the first one: `first_path = results[0]`.
+- DOCKER ISOLATION: Python steps CANNOT see the host filesystem. Use variables passed from "file_op:list".
+- NO DISK ACCESS: In Python steps, you CANNOT use `open()`, `os.listdir()`, `Path.exists()`, or `shutil`. Use `file_op` steps for disk interaction.
+- SYNTAX: **Double check all brackets `[]`, parentheses `()`, and colons `:`**. Unclosed brackets will cause a crash.
+- DATA TYPES: Access properties of file dicts: `f['path']`, `f['name']`, `f['mtime']`, `f['is_dir']`.
+- MODULARITY: Prefer separate Python steps for distinct filtering logic if it's complex.
 
 EXAMPLE: Find then Inspect (Search for resume, then read it)
 {
@@ -49,9 +45,9 @@ EXAMPLE: Find then Inspect (Search for resume, then read it)
     },
     {
       "id": "find_resume",
-      "description": "Extract the first resume path found",
+      "description": "Find path of the first resume file",
       "action": "python",
-      "args": {"code": "pdfs = [f['path'] for f in list_all if f['name'].lower().endswith('.txt') or f['name'].lower().endswith('.pdf')]\nfind_resume = next((p for p in pdfs if 'resume' in p.lower()), None)"},
+      "args": {"code": "pdfs = [f for f in list_all if f['name'].lower().endswith(('.txt', '.pdf'))]\\nfind_resume = next((f['path'] for f in pdfs if 'resume' in f['name'].lower()), None)"},
       "depends_on": ["list_all"]
     },
     {
@@ -60,99 +56,44 @@ EXAMPLE: Find then Inspect (Search for resume, then read it)
       "action": "file_op",
       "args": {"op": "read", "path": "find_resume"},
       "depends_on": ["find_resume"]
-    },
-    {
-      "id": "summarize",
-      "description": "Extract key info from text",
-      "action": "python",
-      "args": {"code": "print(f'Summarizing content: {read_resume[:200]}...')"},
-      "depends_on": ["read_resume"]
     }
   ]
 }
 
-EXAMPLE: Multi-stage Filter (PDF -> Name contains H4)
+EXAMPLE: Multi-category Filter (Move Images and PDFs)
 {
   "steps": [
     {
       "id": "list_all",
-      "action": "file_op",
-      "args": {"op": "list", "path": "~/Downloads"},
-      "depends_on": []
-    },
-    {
-      "id": "filter_pdfs",
-      "description": "Keep full dicts of PDFs",
-      "action": "python",
-      "args": {"code": "pdf_dicts = [f for f in list_all if f['name'].lower().endswith('.pdf')]"},
-      "depends_on": ["list_all"]
-    },
-    {
-      "id": "filter_h4",
-      "description": "Filter dicts for 'h4' and extract paths",
-      "action": "python",
-      "args": {"code": "h4_paths = [f['path'] for f in pdf_dicts if 'h4' in f['name'].lower()]"},
-      "depends_on": ["filter_pdfs"]
-    },
-    {
-      "id": "report",
-      "action": "python",
-      "args": {"code": "print('Found:', h4_paths) if h4_paths else print('No H4 PDFs found')"},
-      "depends_on": ["filter_h4"]
-    }
-  ]
-}
-
-EXAMPLE: Organize Images (Simple)
-{
-  "steps": [
-    {
-      "id": "list_all",
-      "description": "List files",
       "action": "file_op",
       "args": {"op": "list", "path": "~/Downloads"},
       "depends_on": []
     },
     {
       "id": "filter_imgs",
-      "description": "Filter for images",
+      "description": "Filter for JPG/PNG",
       "action": "python",
-      "args": {"code": "images = [f['path'] for f in list_all if f['name'].lower().endswith(('.jpg', '.png'))]"},
+      "args": {"code": "images = [f for f in list_all if f['name'].lower().endswith(('.jpg', '.png'))]"},
+      "depends_on": ["list_all"]
+    },
+    {
+      "id": "filter_pdfs",
+      "description": "Filter for PDFs",
+      "action": "python",
+      "args": {"code": "pdfs = [f for f in list_all if f['name'].lower().endswith('.pdf')]"},
       "depends_on": ["list_all"]
     },
     {
       "id": "move_imgs",
-      "description": "Move the images",
       "action": "file_op",
       "args": {"op": "move", "src": "images", "dest": "~/Downloads/Images"},
       "depends_on": ["filter_imgs"]
-    }
-  ]
-}
-
-EXAMPLE: Files modified today (Filtering by mtime)
-{
-  "steps": [
+    },
     {
-      "id": "list_files",
-      "description": "List files",
+      "id": "move_pdfs",
       "action": "file_op",
-      "args": {"op": "list", "path": "~/Downloads/Images"},
-      "depends_on": []
-    },
-    {
-      "id": "filter_today",
-      "description": "Filter for last 24h",
-      "action": "python",
-      "args": {"code": "import time\\ntoday_files = [f['path'] for f in list_files if (time.time() - f['mtime']) < 86400]"},
-      "depends_on": ["list_files"]
-    },
-    {
-      "id": "report",
-      "description": "Print results",
-      "action": "python",
-      "args": {"code": "print('Modified today:', today_files)"},
-      "depends_on": ["filter_today"]
+      "args": {"op": "move", "src": "pdfs", "dest": "~/Downloads/PDFs"},
+      "depends_on": ["filter_pdfs"]
     }
   ]
 }

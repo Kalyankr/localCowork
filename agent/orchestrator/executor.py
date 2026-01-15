@@ -37,25 +37,29 @@ class Executor:
         return results
 
     def resolve_args(self, args, depends_on=None):
-        resolved = {}
-        for key, value in args.items():
-            if isinstance(value, str):
-                if value in self.context:
-                    resolved[key] = self.context[value]
-                elif "/" in value:
-                    parts = value.split("/", 1)
+        def _resolve(val):
+            if isinstance(val, str):
+                if val in self.context:
+                    return self.context[val]
+                
+                # Check for path-like interpolation "var/path"
+                if "/" in val:
+                    parts = val.split("/", 1)
                     if parts[0] in self.context:
                         base = str(self.context[parts[0]])
-                        resolved[key] = os.path.join(base, parts[1])
-                    else:
-                        resolved[key] = value
-                elif depends_on and value in depends_on:
-                    raise ValueError(f"Variable '{value}' was not produced by a previous step (output was None or step failed)")
-                else:
-                    resolved[key] = value
-            else:
-                resolved[key] = value
-        return resolved
+                        return os.path.join(base, parts[1])
+                
+                return val
+            
+            if isinstance(val, list):
+                return [_resolve(i) for i in val]
+            
+            if isinstance(val, dict):
+                return {k: _resolve(v) for k, v in val.items()}
+            
+            return val
+
+        return _resolve(args)
 
     def inject_python_context(self, code, step_id=None):
         injected = "from pathlib import Path\nimport os\nimport json\n"
@@ -75,7 +79,7 @@ class Executor:
         full_code += "try:\n"
         full_code += "    __exclude = {'json', 'os', 'Path', 'injected', 'code', 'step_id', '__exclude', '__state', 'k', 'v'}\n"
         full_code += "    __state = {}\n"
-        full_code += "    for k, v in list(locals().items()):\n"
+        full_code += "    for k, v in __builtins__.list(locals().items()):\n"
         full_code += "        if not k.startswith('_') and k not in __exclude:\n"
         full_code += "            try:\n"
         full_code += "                json.dumps(v)\n"

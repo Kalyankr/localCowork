@@ -2,8 +2,14 @@ from pathlib import Path
 import shutil
 
 
-def list_files(path: str):
-    p = Path(path).expanduser()
+def _to_path(val: str | dict) -> Path:
+    if isinstance(val, dict) and "path" in val:
+        return Path(val["path"]).expanduser()
+    return Path(str(val)).expanduser()
+
+
+def list_files(path: str | dict):
+    p = _to_path(path)
     if not p.exists():
         return []
     
@@ -23,50 +29,50 @@ def list_files(path: str):
     return results
 
 
-def move_file(src: str | list[str], dest: str):
+def move_file(src: str | dict | list[str | dict], dest: str | dict):
     if not src:
         raise ValueError("Source path(s) for move cannot be empty")
     
-    dest = Path(dest).expanduser()
+    dest_path = _to_path(dest)
     # Create destination if it's a directory and doesn't exist
-    if not dest.suffix and not dest.exists():
-        dest.mkdir(parents=True, exist_ok=True)
+    if not dest_path.suffix and not dest_path.exists():
+        dest_path.mkdir(parents=True, exist_ok=True)
     
     if isinstance(src, list):
         moved = []
         for s in src:
-            s_path = Path(s).expanduser()
-            shutil.move(str(s_path), str(dest))
+            s_path = _to_path(s)
+            shutil.move(str(s_path), str(dest_path))
             moved.append(str(s_path))
-        return f"Moved {len(moved)} files to {dest}"
+        return f"Moved {len(moved)} files to {dest_path}"
     else:
-        src = Path(src).expanduser()
-        shutil.move(str(src), str(dest))
-        return f"Moved {src} → {dest}"
+        src_path = _to_path(src)
+        shutil.move(str(src_path), str(dest_path))
+        return f"Moved {src_path} → {dest_path}"
 
 
-def create_dir(path: str):
-    p = Path(path).expanduser()
+def create_dir(path: str | dict):
+    p = _to_path(path)
     p.mkdir(parents=True, exist_ok=True)
     return f"Created directory {p}"
 
 
-def rename_file(path: str, new_name: str):
-    p = Path(path).expanduser()
+def rename_file(path: str | dict, new_name: str):
+    p = _to_path(path)
     new_path = p.with_name(new_name)
     p.rename(new_path)
     return f"Renamed {p} → {new_path}"
 
 
-def read_text(path: str):
-    if not path or not str(path).strip():
-        raise ValueError("Path for read cannot be empty")
-    return Path(path).expanduser().read_text()
+def read_text(path: str | dict):
+    p = _to_path(path)
+    return p.read_text()
 
 
-def write_text(path: str, content: str):
-    Path(path).expanduser().write_text(content)
-    return f"Wrote text to {path}"
+def write_text(path: str | dict, content: str):
+    p = _to_path(path)
+    p.write_text(content)
+    return f"Wrote text to {p}"
 
 
 def dispatch(op: str, **kwargs):
