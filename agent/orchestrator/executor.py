@@ -42,6 +42,17 @@ class Executor:
                 if val in self.context:
                     return self.context[val]
                 
+                # Check for dictionary or list indexing: var['key'] or var[0]
+                index_match = re.match(r"^(\w+)\[['\"]?([^'\"\]]+)['\"]?\]$", val)
+                if index_match:
+                    base_var, key = index_match.groups()
+                    if base_var in self.context:
+                        data = self.context[base_var]
+                        if isinstance(data, dict):
+                            return data.get(key)
+                        if isinstance(data, list) and key.isdigit():
+                            return data[int(key)]
+
                 # Check for path-like interpolation "var/path"
                 if "/" in val:
                     parts = val.split("/", 1)

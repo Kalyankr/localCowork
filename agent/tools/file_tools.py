@@ -31,7 +31,7 @@ def list_files(path: str | dict):
 
 def move_file(src: str | dict | list[str | dict], dest: str | dict):
     if not src:
-        raise ValueError("Source path(s) for move cannot be empty")
+        return "No files found to move; skipping."
     
     dest_path = _to_path(dest)
     # Create destination if it's a directory and doesn't exist
