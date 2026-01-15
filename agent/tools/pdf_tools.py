@@ -11,5 +11,5 @@ def extract_metadata(files):
     return results
 
 
-def dispatch(**kwargs):
+def dispatch(op: str = "extract", **kwargs):
     return extract_metadata(kwargs["files"])

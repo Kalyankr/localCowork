@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 class Step(BaseModel):
     id: str
-    description: str
+    description: Optional[str] = None
     action: str
     args: Dict[str, Any] = {}
     depends_on: List[str] = []

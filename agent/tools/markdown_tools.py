@@ -6,5 +6,7 @@ def create_markdown(content: str, output: str):
     return f"Markdown written to {output}"
 
 
-def dispatch(**kwargs):
-    return create_markdown(kwargs["content"], kwargs["output"])
+def dispatch(op: str = "create", **kwargs):
+    if op == "create":
+        return create_markdown(kwargs["content"], kwargs["output"])
+    raise ValueError(f"Unsupported markdown op: {op}")

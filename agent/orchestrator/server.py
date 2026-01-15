@@ -3,7 +3,7 @@ from agent.orchestrator.models import TaskRequest, TaskResponse
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
 from agent.orchestrator.tool_registry import ToolRegistry
-from agent.tools import file_tools, markdown_tools, data_tools, pdf_tools
+from agent.tools import file_tools, markdown_tools, data_tools, pdf_tools, text_tools
 from agent.sandbox.sandbox_runner import Sandbox
 import uuid
 
@@ -14,6 +14,7 @@ tool_registry.register("file_op", file_tools.dispatch)
 tool_registry.register("markdown_op", markdown_tools.dispatch)
 tool_registry.register("data_op", data_tools.dispatch)
 tool_registry.register("pdf_op", pdf_tools.dispatch)
+tool_registry.register("text_op", text_tools.dispatch)
 
 
 sandbox = Sandbox()
