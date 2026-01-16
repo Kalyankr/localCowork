@@ -1,4 +1,5 @@
 import typer
+import logging
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -8,20 +9,26 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
-from agent.orchestrator.tool_registry import ToolRegistry
-from agent.tools import file_tools, markdown_tools, data_tools, pdf_tools, text_tools
+from agent.tools import create_default_registry
 from agent.sandbox.sandbox_runner import Sandbox
+from agent.llm.client import LLMError
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 console = Console()
-app = typer.Typer()
+app = typer.Typer(
+    name="localcowork",
+    help="Your Local AI Assistant - run natural language tasks from the CLI.",
+    add_completion=False,
+)
 
-tool_registry = ToolRegistry()
-tool_registry.register("file_op", file_tools.dispatch)
-tool_registry.register("markdown_op", markdown_tools.dispatch)
-tool_registry.register("data_op", data_tools.dispatch)
-tool_registry.register("pdf_op", pdf_tools.dispatch)
-tool_registry.register("text_op", text_tools.dispatch)
-
+# Use shared registry
+tool_registry = create_default_registry()
 sandbox = Sandbox()
 
 
@@ -46,16 +53,24 @@ def format_output_item(item) -> str:
 def run(request: str):
     """Run a natural-language task directly from the CLI."""
 
-    console.print(Panel.fit(f"[bold cyan] Generating Plan[/bold cyan]\n{request}"))
+    console.print(Panel.fit(f"[bold cyan]🤖 Generating Plan[/bold cyan]\n{request}"))
 
-    plan = generate_plan(request)
+    try:
+        plan = generate_plan(request)
+    except LLMError as e:
+        console.print(f"[bold red]❌ LLM Error:[/bold red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[bold red]❌ Failed to generate plan:[/bold red] {e}")
+        logger.exception("Plan generation failed")
+        raise typer.Exit(code=1)
 
     # Pretty-print the plan JSON
     plan_json = plan.model_dump_json(indent=2)
     console.print(
         Panel(
             Syntax(plan_json, "json", theme="monokai", line_numbers=False),
-            title="Plan",
+            title="📋 Plan",
             border_style="cyan",
         )
     )
