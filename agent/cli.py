@@ -56,8 +56,10 @@ def format_output_item(item) -> str:
 @app.command()
 def run(
     request: str,
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation and execute immediately"),
     no_parallel: bool = typer.Option(False, "--no-parallel", "-s", help="Run steps sequentially instead of in parallel"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show plan without executing"),
 ):
     """Run a natural-language task directly from the CLI."""
     
@@ -86,6 +88,26 @@ def run(
             border_style="cyan",
         )
     )
+    
+    # Show step summary
+    console.print(f"\n[bold]Steps:[/bold] {len(plan.steps)} total")
+    for i, step in enumerate(plan.steps, 1):
+        deps = f" (depends: {', '.join(step.depends_on)})" if step.depends_on else ""
+        desc = step.description or step.action
+        console.print(f"  {i}. [cyan]{step.id}[/cyan]: {desc}{deps}")
+    console.print()
+    
+    # Dry run mode - exit after showing plan
+    if dry_run:
+        console.print("[yellow]Dry run mode - no changes made.[/yellow]")
+        raise typer.Exit(code=0)
+    
+    # Confirmation prompt (unless --yes)
+    if not yes:
+        confirm = typer.confirm("Execute this plan?", default=True)
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            raise typer.Exit(code=0)
 
     # Progress tracking state
     step_status = {}
