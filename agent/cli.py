@@ -89,11 +89,44 @@ def run(
 
     # Progress tracking state
     step_status = {}
+    step_descriptions = {step.id: step.description or step.action for step in plan.steps}
     total_steps = len(plan.steps)
+    completed_count = 0
+    
+    def build_progress_table() -> Table:
+        """Build a table showing current step statuses."""
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
+        table.add_column("Step", style="cyan", width=20)
+        table.add_column("Status", width=12)
+        table.add_column("Description", style="dim")
+        
+        for step in plan.steps:
+            status = step_status.get(step.id, "pending")
+            desc = step_descriptions.get(step.id, "")[:40]
+            
+            if status == "pending":
+                status_text = "[dim]⏳ pending[/dim]"
+            elif status == "starting":
+                status_text = "[yellow]▶ running[/yellow]"
+            elif status == "success":
+                status_text = "[green]✓ done[/green]"
+            elif status == "error":
+                status_text = "[red]✗ failed[/red]"
+            elif status == "skipped":
+                status_text = "[dim]⊘ skipped[/dim]"
+            else:
+                status_text = f"[yellow]{status}[/yellow]"
+            
+            table.add_row(step.id, status_text, desc)
+        
+        return table
     
     def on_progress(step_id: str, status: str, current: int, total: int):
         """Callback for step progress updates."""
+        nonlocal completed_count
         step_status[step_id] = status
+        if status in ("success", "error", "skipped"):
+            completed_count += 1
     
     # Create executor with parallel mode
     parallel_mode = not no_parallel
@@ -105,30 +138,42 @@ def run(
         parallel=parallel_mode,
     )
 
-    mode_text = "parallel" if parallel_mode else "sequential"
-    console.print(Panel.fit(f"[bold green]⚡ Executing Steps[/bold green] ({mode_text} mode)"))
+    mode_text = "⚡ parallel" if parallel_mode else "📝 sequential"
+    console.print(Panel.fit(f"[bold green]Executing Steps[/bold green] ({mode_text})"))
 
     # Execute with live progress display
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=console,
-        transient=False,
-    ) as progress:
-        task = progress.add_task(f"[cyan]Running {total_steps} steps...", total=total_steps)
+    async def run_with_live_display():
+        results = await executor.run()
+        return results
+    
+    with Live(build_progress_table(), console=console, refresh_per_second=4) as live:
+        async def run_and_update():
+            # Create a task to periodically update the display
+            async def updater():
+                while completed_count < total_steps:
+                    live.update(build_progress_table())
+                    await asyncio.sleep(0.25)
+            
+            # Run both the executor and the updater
+            update_task = asyncio.create_task(updater())
+            try:
+                results = await executor.run()
+                return results
+            finally:
+                update_task.cancel()
+                try:
+                    await update_task
+                except asyncio.CancelledError:
+                    pass
         
-        async def run_with_progress():
-            results = await executor.run()
-            return results
-        
-        # Run executor
-        results = asyncio.run(run_with_progress())
-        
-        # Update final progress
-        completed = sum(1 for r in results.values() if r.status == "success")
-        progress.update(task, completed=total_steps, description=f"[green]✓ Completed {completed}/{total_steps} steps")
+        results = asyncio.run(run_and_update())
+        # Final update
+        live.update(build_progress_table())
+    
+    # Summary line
+    success_count = sum(1 for r in results.values() if r.status == "success")
+    failed_count = sum(1 for r in results.values() if r.status in ("error", "skipped"))
+    console.print(f"\n[bold]Completed:[/bold] [green]{success_count} succeeded[/green], [red]{failed_count} failed/skipped[/red]")
 
     # Display results in a table
     table = Table(title="Execution Results", show_lines=True)
