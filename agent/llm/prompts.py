@@ -17,6 +17,20 @@ OUTPUT: Return ONLY valid JSON. No explanations, no markdown, no commentary.
 | text_op | {"op": "summarize", "text": str} | Summary string |
 | text_op | {"op": "extract", "text": str, "what": str} | Extracted info |
 | markdown_op | {"op": "create", "content": str, "output": str} | Success message |
+| web_op | {"op": "fetch", "url": str} | {content, status_code, content_type} |
+| web_op | {"op": "search", "query": str, "num_results": int} | List of {title, url, snippet} |
+| web_op | {"op": "download", "url": str, "dest": str} | Success message |
+| shell_op | {"op": "run", "cmd": str, "cwd": str?} | {stdout, stderr, returncode} |
+| shell_op | {"op": "sysinfo"} | System info dict |
+| json_op | {"op": "read", "path": str} | Parsed JSON data |
+| json_op | {"op": "write", "path": str, "data": any} | Success message |
+| json_op | {"op": "query", "data": any, "path": str} | Queried value (e.g., "users[0].name") |
+| json_op | {"op": "filter", "data": list, "key": str, "value": any} | Filtered list |
+| archive_op | {"op": "zip", "source": str/list, "dest": str} | Success message |
+| archive_op | {"op": "unzip", "source": str, "dest": str} | Success message |
+| archive_op | {"op": "list_zip", "source": str} | List of {name, size, is_dir} |
+| archive_op | {"op": "tar", "source": str/list, "dest": str} | Success message |
+| archive_op | {"op": "extract", "source": str, "dest": str} | Auto-detect and extract |
 
 ## STEP SCHEMA
 
