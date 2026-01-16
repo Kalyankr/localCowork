@@ -1,51 +1,146 @@
 import os
 import json
 import re
+import asyncio
 import logging
-from agent.orchestrator.models import StepResult
+from typing import Callable, Optional, List, Set
+from agent.orchestrator.models import StepResult, Step
 from agent.orchestrator.tool_registry import ToolRegistry
 from agent.sandbox.sandbox_runner import Sandbox
 
 logger = logging.getLogger(__name__)
 
+# Type for progress callback: (step_id, status, current, total)
+ProgressCallback = Callable[[str, str, int, int], None]
+
 
 class Executor:
-    """Executes a plan by running steps in dependency order."""
+    """Executes a plan by running steps in dependency order with parallel execution."""
     
-    def __init__(self, plan, tool_registry: ToolRegistry, sandbox: Sandbox):
+    def __init__(
+        self, 
+        plan, 
+        tool_registry: ToolRegistry, 
+        sandbox: Sandbox,
+        on_progress: Optional[ProgressCallback] = None,
+        parallel: bool = True,
+    ):
         self.plan = plan
         self.tool_registry = tool_registry
         self.sandbox = sandbox
         self.context = {}  # store step outputs
+        self.on_progress = on_progress
+        self.parallel = parallel
+        self._lock = asyncio.Lock()  # protect shared context in parallel mode
+
+    def _get_ready_steps(
+        self, 
+        completed: Set[str], 
+        failed: Set[str], 
+        running: Set[str]
+    ) -> List[Step]:
+        """Get steps that are ready to run (all dependencies met)."""
+        ready = []
+        for step in self.plan.steps:
+            if step.id in completed or step.id in failed or step.id in running:
+                continue
+            
+            # Check if all dependencies are completed successfully
+            deps_met = all(d in completed for d in step.depends_on)
+            deps_failed = any(d in failed for d in step.depends_on)
+            
+            if deps_failed:
+                # Mark as failed due to dependency
+                failed.add(step.id)
+            elif deps_met:
+                ready.append(step)
+        
+        return ready
 
     async def run(self) -> dict:
-        """Execute all steps in the plan."""
+        """Execute all steps in the plan with parallel execution for independent steps."""
         results = {}
-        logger.info(f"Executing plan with {len(self.plan.steps)} steps")
+        total_steps = len(self.plan.steps)
+        completed: Set[str] = set()
+        failed: Set[str] = set()
+        running: Set[str] = set()
+        
+        logger.info(f"Executing plan with {total_steps} steps (parallel={self.parallel})")
 
-        for step in self.plan.steps:
-            logger.debug(f"Processing step: {step.id} (action={step.action})")
+        while len(completed) + len(failed) < total_steps:
+            # Get steps ready to execute
+            ready_steps = self._get_ready_steps(completed, failed, running)
             
-            # Check dependencies
-            failed_deps = [d for d in step.depends_on if d in results and results[d].status == "error"]
-            if failed_deps:
-                logger.warning(f"Step {step.id} skipped due to failed deps: {failed_deps}")
-                results[step.id] = StepResult(
-                    step_id=step.id,
-                    status="skipped",
-                    error=f"Dependency failed: {', '.join(failed_deps)}"
-                )
+            if not ready_steps and not running:
+                # No steps ready and none running - check for failures
+                for step in self.plan.steps:
+                    if step.id not in completed and step.id not in failed:
+                        failed_deps = [d for d in step.depends_on if d in failed]
+                        if failed_deps:
+                            results[step.id] = StepResult(
+                                step_id=step.id,
+                                status="skipped",
+                                error=f"Dependency failed: {', '.join(failed_deps)}"
+                            )
+                            failed.add(step.id)
+                break
+            
+            if not ready_steps:
+                # Steps are running, wait a bit
+                await asyncio.sleep(0.01)
                 continue
 
-            result = await self.run_step(step)
-            results[step.id] = result
-            logger.info(f"Step {step.id}: {result.status}")
+            # Report progress
+            if self.on_progress:
+                for step in ready_steps:
+                    self.on_progress(step.id, "starting", len(completed) + 1, total_steps)
 
-            # Store output in context for later steps
-            if result.status == "success" and result.output is not None:
-                self.context[step.id] = result.output
+            if self.parallel and len(ready_steps) > 1:
+                # Run independent steps in parallel
+                logger.info(f"Running {len(ready_steps)} steps in parallel: {[s.id for s in ready_steps]}")
+                running.update(s.id for s in ready_steps)
+                
+                tasks = [self._run_step_wrapper(step, results, completed, failed, running, total_steps) 
+                         for step in ready_steps]
+                await asyncio.gather(*tasks)
+            else:
+                # Run sequentially
+                for step in ready_steps:
+                    running.add(step.id)
+                    await self._run_step_wrapper(step, results, completed, failed, running, total_steps)
 
         return results
+
+    async def _run_step_wrapper(
+        self, 
+        step: Step, 
+        results: dict, 
+        completed: Set[str], 
+        failed: Set[str],
+        running: Set[str],
+        total_steps: int
+    ):
+        """Wrapper to run a step and update tracking sets."""
+        logger.debug(f"Processing step: {step.id} (action={step.action})")
+        
+        result = await self.run_step(step)
+        
+        # Thread-safe update of shared state
+        async with self._lock:
+            results[step.id] = result
+            running.discard(step.id)
+            
+            if result.status == "success":
+                completed.add(step.id)
+                if result.output is not None:
+                    self.context[step.id] = result.output
+            else:
+                failed.add(step.id)
+        
+        logger.info(f"Step {step.id}: {result.status}")
+        
+        if self.on_progress:
+            self.on_progress(step.id, result.status, len(completed), total_steps)
 
     def resolve_args(self, args, depends_on=None):
         def _resolve(val):
