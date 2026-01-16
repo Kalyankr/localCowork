@@ -10,6 +10,7 @@ __all__ = [
     "shell_tools",
     "json_tools",
     "archive_tools",
+    "chat_tools",
     "create_default_registry",
 ]
 
@@ -27,6 +28,7 @@ def create_default_registry():
         shell_tools,
         json_tools,
         archive_tools,
+        chat_tools,
     )
     
     registry = ToolRegistry()
@@ -39,4 +41,5 @@ def create_default_registry():
     registry.register("shell_op", shell_tools.dispatch)
     registry.register("json_op", json_tools.dispatch)
     registry.register("archive_op", archive_tools.dispatch)
+    registry.register("chat_op", chat_tools.dispatch)
     return registry

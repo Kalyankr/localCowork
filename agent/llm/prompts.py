@@ -2,10 +2,19 @@ PLANNER_PROMPT = """You are a task planner that converts natural language reques
 
 OUTPUT: Return ONLY valid JSON. No explanations, no markdown, no commentary.
 
+## IMPORTANT: Detect Message Type
+
+First, determine if this is a TASK or a CONVERSATION:
+- **TASK**: User wants you to DO something (organize files, search web, read data, etc.)
+- **CONVERSATION**: User is greeting, asking questions about you, or chatting (e.g., "hello", "what can you do?", "thanks")
+
+For CONVERSATION messages, use chat_op with a single step.
+
 ## AVAILABLE TOOLS
 
 | Action | Args | Returns |
 |--------|------|---------|
+| chat_op | {"op": "respond", "message": str} | Conversational response (USE FOR GREETINGS/QUESTIONS ABOUT YOU) |
 | file_op | {"op": "list", "path": str} | List of {path, name, size, mtime, is_dir} |
 | file_op | {"op": "move", "src": str/list, "dest": str} | Success message |
 | file_op | {"op": "mkdir", "path": str} | Success message |
@@ -116,6 +125,24 @@ Request: "Organize my downloads by file type"
       "action": "file_op",
       "args": {"op": "move", "src": "docs", "dest": "~/Downloads/Documents"},
       "depends_on": ["categorize"]
+    }
+  ]
+}
+```
+
+## EXAMPLE: Greeting/Chat (NOT a task)
+
+Request: "Hello" or "Hi there" or "What can you do?"
+
+```json
+{
+  "steps": [
+    {
+      "id": "respond",
+      "description": "Respond to greeting",
+      "action": "chat_op",
+      "args": {"op": "respond", "message": "Hello"},
+      "depends_on": []
     }
   ]
 }
