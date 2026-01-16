@@ -14,8 +14,14 @@ class Plan(BaseModel):
     steps: List[Step]
 
 
+class ConversationMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
 class TaskRequest(BaseModel):
     request: str
+    session_id: Optional[str] = None  # For multi-turn conversations
 
 
 class StepResult(BaseModel):

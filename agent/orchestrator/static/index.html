@@ -149,9 +149,26 @@
             font-size: 0.75rem;
             color: var(--text-dim);
             margin-left: 0.5rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
         }
         .step-count .done { color: var(--success); }
         .step-count .error { color: var(--error); }
+        .step-count .in-progress {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            color: var(--accent);
+        }
+        .step-count .mini-spinner {
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
         
         /* Summary */
         .summary {
@@ -306,6 +323,7 @@
         const emptyState = document.getElementById('empty-state');
         
         let isRunning = false;
+        let sessionId = null;  // For multi-turn conversation
 
         function useExample(btn) {
             inputEl.value = btn.textContent;
@@ -339,10 +357,16 @@
             content.innerHTML = '<div class="spinner"></div> Planning...';
 
             try {
+                // Include session_id for multi-turn conversation
+                const payload = { request };
+                if (sessionId) {
+                    payload.session_id = sessionId;
+                }
+                
                 const response = await fetch('/tasks/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ request })
+                    body: JSON.stringify(payload)
                 });
 
                 if (!response.ok) {
@@ -368,7 +392,10 @@
                         if (!line.startsWith('data: ')) continue;
                         const data = JSON.parse(line.slice(6));
 
-                        if (data.type === 'plan') {
+                        if (data.type === 'session') {
+                            // Store session ID for future requests
+                            sessionId = data.session_id;
+                        } else if (data.type === 'plan') {
                             plan = data.plan;
                             content.innerHTML = renderPlan(plan, stepStatuses);
                         } else if (data.type === 'progress') {
@@ -441,29 +468,29 @@
             // Count completed and failed steps
             const doneCount = Object.values(statuses).filter(s => s === 'success').length;
             const errorCount = Object.values(statuses).filter(s => s === 'error').length;
+            const runningCount = Object.values(statuses).filter(s => s === 'running' || s === 'starting').length;
             const totalSteps = plan.steps.length;
             const allDone = (doneCount + errorCount) === totalSteps && totalSteps > 0;
+            const isRunning = runningCount > 0 || (!allDone && (doneCount > 0 || errorCount > 0));
             
-            // Build status summary
-            let statusSummary = '';
-            if (doneCount > 0 || errorCount > 0) {
-                statusSummary = `<span class="step-count">`;
+            // Build status summary with spinner
+            let statusSummary = '<span class="step-count">';
+            if (isRunning) {
+                statusSummary += `<span class="in-progress"><span class="mini-spinner"></span>${doneCount}/${totalSteps}</span>`;
+            } else if (allDone) {
                 if (doneCount > 0) statusSummary += `<span class="done">✓${doneCount}</span>`;
                 if (errorCount > 0) statusSummary += ` <span class="error">✗${errorCount}</span>`;
-                statusSummary += `</span>`;
             }
+            statusSummary += '</span>';
 
-            // Determine if accordion should be open (while running, keep it visible)
-            const isOpen = !allDone;
-            const openClass = isOpen ? 'open' : '';
-
+            // Accordion is always closed by default - user can click to expand
             return `
                 <div class="plan-section">
                     <div class="accordion-header" onclick="toggleAccordion(this)">
                         <h3>Plan (${totalSteps} steps) ${statusSummary}</h3>
-                        <span class="accordion-toggle ${openClass}">▼</span>
+                        <span class="accordion-toggle">▼</span>
                     </div>
-                    <div class="accordion-content ${openClass}">
+                    <div class="accordion-content">
                         ${steps}
                     </div>
                 </div>

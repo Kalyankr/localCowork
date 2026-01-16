@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-from agent.orchestrator.models import TaskRequest, TaskResponse
+from agent.orchestrator.models import TaskRequest, TaskResponse, ConversationMessage
 from agent.orchestrator.planner import generate_plan, summarize_results
 from agent.orchestrator.executor import Executor
 from agent.tools import create_default_registry
@@ -12,6 +12,9 @@ import json
 import asyncio
 import logging
 from pathlib import Path
+from typing import Dict, List
+from collections import defaultdict
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,44 @@ sandbox = Sandbox()
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Conversation history storage (in-memory, keyed by session_id)
+# In production, you might want to use Redis or a database
+conversation_history: Dict[str, List[ConversationMessage]] = defaultdict(list)
+conversation_timestamps: Dict[str, float] = {}  # For cleanup
+
+# Session timeout (1 hour)
+SESSION_TIMEOUT = 3600
+
+
+def cleanup_old_sessions():
+    """Remove sessions older than SESSION_TIMEOUT."""
+    current_time = time.time()
+    expired = [
+        sid for sid, ts in conversation_timestamps.items()
+        if current_time - ts > SESSION_TIMEOUT
+    ]
+    for sid in expired:
+        conversation_history.pop(sid, None)
+        conversation_timestamps.pop(sid, None)
+
+
+def get_session_history(session_id: str) -> List[ConversationMessage]:
+    """Get conversation history for a session."""
+    cleanup_old_sessions()
+    return conversation_history.get(session_id, [])
+
+
+def add_to_history(session_id: str, role: str, content: str):
+    """Add a message to conversation history."""
+    conversation_history[session_id].append(
+        ConversationMessage(role=role, content=content)
+    )
+    conversation_timestamps[session_id] = time.time()
+    
+    # Keep only last 20 messages per session to prevent memory bloat
+    if len(conversation_history[session_id]) > 20:
+        conversation_history[session_id] = conversation_history[session_id][-20:]
+
 
 @app.get("/")
 async def root():
@@ -39,10 +80,22 @@ async def root():
 async def stream_task(task: TaskRequest, parallel: bool = True):
     """Stream task execution progress via SSE."""
     
+    # Get or create session ID
+    session_id = task.session_id or str(uuid.uuid4())
+    
     async def event_stream():
         try:
-            # Generate plan
-            plan = generate_plan(task.request)
+            # Get conversation history for context
+            history = get_session_history(session_id)
+            
+            # Add user message to history
+            add_to_history(session_id, "user", task.request)
+            
+            # Generate plan with conversation context
+            plan = generate_plan(task.request, history=history if history else None)
+            
+            # Send session_id back to client (for future requests)
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
             yield f"data: {json.dumps({'type': 'plan', 'plan': plan.model_dump()})}\n\n"
             
             # Track progress
@@ -94,6 +147,9 @@ async def stream_task(task: TaskRequest, parallel: bool = True):
             else:
                 # Generate summary for task results
                 summary = summarize_results(task.request, results)
+            
+            # Add assistant response to history
+            add_to_history(session_id, "assistant", summary)
             
             yield f"data: {json.dumps({'type': 'summary', 'summary': summary})}\n\n"
             

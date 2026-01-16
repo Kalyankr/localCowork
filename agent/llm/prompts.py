@@ -1,6 +1,10 @@
 PLANNER_PROMPT = """You are a task planner that converts natural language requests into executable step-by-step plans.
 
-OUTPUT: Return ONLY valid JSON. No explanations, no markdown, no commentary.
+OUTPUT FORMAT: Return ONLY a valid JSON object. 
+- Start with { and end with }
+- No markdown code blocks (no ```)
+- No explanations before or after the JSON
+- No comments inside the JSON
 
 ## IMPORTANT: Detect Message Type
 
