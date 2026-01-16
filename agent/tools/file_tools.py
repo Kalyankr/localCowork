@@ -1,16 +1,26 @@
 from pathlib import Path
 import shutil
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _to_path(val: str | dict) -> Path:
+    """Convert string or dict to Path, expanding user home."""
     if isinstance(val, dict) and "path" in val:
         return Path(val["path"]).expanduser()
     return Path(str(val)).expanduser()
 
 
-def list_files(path: str | dict):
+def list_files(path: str | dict) -> list[dict]:
+    """List files in a directory with metadata."""
     p = _to_path(path)
     if not p.exists():
+        logger.warning(f"Path does not exist: {p}")
+        return []
+    
+    if not p.is_dir():
+        logger.warning(f"Path is not a directory: {p}")
         return []
     
     results = []
@@ -24,8 +34,10 @@ def list_files(path: str | dict):
                 "size": stat.st_size,
                 "is_dir": x.is_dir()
             })
-        except:
-            continue
+        except PermissionError:
+            logger.debug(f"Permission denied: {x}")
+        except OSError as e:
+            logger.debug(f"Cannot stat {x}: {e}")
     return results
 
 
