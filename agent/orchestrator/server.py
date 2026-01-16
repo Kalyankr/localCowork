@@ -1,33 +1,47 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from agent.orchestrator.models import TaskRequest, TaskResponse
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
-from agent.orchestrator.tool_registry import ToolRegistry
-from agent.tools import file_tools, markdown_tools, data_tools, pdf_tools, text_tools
+from agent.tools import create_default_registry
 from agent.sandbox.sandbox_runner import Sandbox
+from agent.llm.client import LLMError
 import uuid
+import logging
 
-app = FastAPI()
+logger = logging.getLogger(__name__)
 
-tool_registry = ToolRegistry()
-tool_registry.register("file_op", file_tools.dispatch)
-tool_registry.register("markdown_op", markdown_tools.dispatch)
-tool_registry.register("data_op", data_tools.dispatch)
-tool_registry.register("pdf_op", pdf_tools.dispatch)
-tool_registry.register("text_op", text_tools.dispatch)
+app = FastAPI(
+    title="LocalCowork API",
+    description="AI-powered local task automation",
+    version="0.1.0",
+)
 
-
+# Use shared registry
+tool_registry = create_default_registry()
 sandbox = Sandbox()
 
 
 @app.post("/tasks", response_model=TaskResponse)
 async def create_task(task: TaskRequest):
-    plan = generate_plan(task.request)
+    """Create and execute a task from natural language."""
+    try:
+        plan = generate_plan(task.request)
+    except LLMError as e:
+        logger.error(f"LLM error: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.exception("Plan generation failed")
+        raise HTTPException(status_code=500, detail=f"Failed to generate plan: {e}")
+    
     task_id = str(uuid.uuid4())
 
     executor = Executor(plan=plan, tool_registry=tool_registry, sandbox=sandbox)
     results = await executor.run()
 
-    # For now, we just run synchronously and ignore results in response.
-    # Later: store by task_id and expose /tasks/{id}/status
     return TaskResponse(task_id=task_id, plan=plan, results=results)
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok"}
