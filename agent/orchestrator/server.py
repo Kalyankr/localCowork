@@ -22,7 +22,7 @@ sandbox = Sandbox()
 
 
 @app.post("/tasks", response_model=TaskResponse)
-async def create_task(task: TaskRequest):
+async def create_task(task: TaskRequest, parallel: bool = True):
     """Create and execute a task from natural language."""
     try:
         plan = generate_plan(task.request)
@@ -35,7 +35,12 @@ async def create_task(task: TaskRequest):
     
     task_id = str(uuid.uuid4())
 
-    executor = Executor(plan=plan, tool_registry=tool_registry, sandbox=sandbox)
+    executor = Executor(
+        plan=plan, 
+        tool_registry=tool_registry, 
+        sandbox=sandbox,
+        parallel=parallel,
+    )
     results = await executor.run()
 
     return TaskResponse(task_id=task_id, plan=plan, results=results)
