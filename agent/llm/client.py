@@ -1,27 +1,49 @@
 import json
+import os
+import logging
 import requests
 import re
+from requests.exceptions import ConnectionError, Timeout, RequestException
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "mistral"
+logger = logging.getLogger(__name__)
+
+# Configuration via environment variables with sensible defaults
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+MODEL = os.getenv("OLLAMA_MODEL", "mistral")
+TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+
+
+class LLMError(Exception):
+    """Custom exception for LLM-related errors."""
+    pass
 
 
 def call_llm(prompt: str) -> str:
     """
     Calls Ollama and returns raw text output.
+    
+    Raises:
+        LLMError: If the LLM request fails.
     """
     payload = {
         "model": MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": {"num_tokens": 2048},
+        "options": {"num_predict": 2048},
     }
 
-    response = requests.post(OLLAMA_URL, json=payload)
-    response.raise_for_status()
-
-    data = response.json()
-    return data["response"]
+    try:
+        logger.debug(f"Calling LLM with model={MODEL}")
+        response = requests.post(OLLAMA_URL, json=payload, timeout=TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        return data["response"]
+    except ConnectionError:
+        raise LLMError(f"Cannot connect to Ollama at {OLLAMA_URL}. Is it running?")
+    except Timeout:
+        raise LLMError(f"LLM request timed out after {TIMEOUT}s")
+    except RequestException as e:
+        raise LLMError(f"LLM request failed: {e}")
 
 
 def call_llm_json(prompt: str) -> dict:
