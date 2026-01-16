@@ -167,3 +167,30 @@ Guidelines:
 
 Summary:"""
 
+
+CODE_FIX_PROMPT = """You wrote Python code that failed with an error. Fix the code.
+
+## ORIGINAL TASK
+{task_description}
+
+## ORIGINAL CODE
+```python
+{original_code}
+```
+
+## ERROR
+{error}
+
+## AVAILABLE VARIABLES
+The following variables are available from previous steps:
+{available_vars}
+
+## RULES (CRITICAL)
+1. **NO DISK ACCESS**: Cannot use open(), os.listdir(), Path.exists(), shutil, or any file I/O
+2. **USE ONLY PROVIDED VARIABLES**: Only use the variables listed above
+3. **FIX THE ERROR**: Address the specific error shown above
+4. **RETURN ONLY CODE**: No explanations, no markdown, just the fixed Python code
+
+## FIXED CODE:
+"""
+

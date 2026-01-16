@@ -7,11 +7,16 @@ from typing import Callable, Optional, List, Set
 from agent.orchestrator.models import StepResult, Step
 from agent.orchestrator.tool_registry import ToolRegistry
 from agent.sandbox.sandbox_runner import Sandbox
+from agent.llm.client import call_llm
+from agent.llm.prompts import CODE_FIX_PROMPT
 
 logger = logging.getLogger(__name__)
 
 # Type for progress callback: (step_id, status, current, total)
 ProgressCallback = Callable[[str, str, int, int], None]
+
+# Maximum number of retries for failed Python code
+MAX_CODE_RETRIES = 2
 
 
 class Executor:
@@ -211,49 +216,144 @@ class Executor:
         
         return full_code
 
+    async def _regenerate_code(self, step, original_code: str, error: str) -> str:
+        """
+        Use the LLM to regenerate/fix failed Python code.
+        Returns the fixed code or the original if regeneration fails.
+        """
+        try:
+            # Build available variables info for the prompt
+            available_vars = []
+            for name, value in self.context.items():
+                # Show variable name and a preview of its type/value
+                val_type = type(value).__name__
+                val_preview = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
+                available_vars.append(f"  - {name}: {val_type} = {val_preview}")
+            
+            vars_str = "\n".join(available_vars) if available_vars else "  (none)"
+            
+            prompt = CODE_FIX_PROMPT.format(
+                task_description=step.description or f"Step: {step.id}",
+                original_code=original_code,
+                error=error,
+                available_vars=vars_str
+            )
+            
+            logger.debug(f"Requesting code fix for step {step.id}")
+            fixed_code = call_llm(prompt)
+            
+            # Clean up the response - extract just the code
+            fixed_code = self._extract_code_from_response(fixed_code)
+            
+            if fixed_code and fixed_code.strip():
+                return fixed_code.strip()
+            
+            return original_code
+            
+        except Exception as e:
+            logger.warning(f"Failed to regenerate code for step {step.id}: {e}")
+            return original_code
+
+    def _extract_code_from_response(self, response: str) -> str:
+        """Extract Python code from LLM response, handling markdown code blocks."""
+        # Try to extract from markdown code block
+        if "```python" in response:
+            parts = response.split("```python", 1)
+            if len(parts) > 1:
+                code_part = parts[1]
+                if "```" in code_part:
+                    return code_part.split("```")[0].strip()
+                return code_part.strip()
+        
+        # Try generic code block
+        if "```" in response:
+            parts = response.split("```", 2)
+            if len(parts) >= 2:
+                return parts[1].strip()
+        
+        # No code block, return as-is (might be raw code)
+        return response.strip()
+
     async def run_step(self, step):
         try:
             # Resolve arguments
             args = self.resolve_args(step.args, depends_on=step.depends_on)
 
-            # Python execution
+            # Python execution with retry logic
             if step.action == "python":
-                code = self.inject_python_context(args["code"], step_id=step.id)
-                out = await self.sandbox.run_python(code)
+                original_code = args["code"]
+                current_code = original_code
+                last_error = None
+                
+                for attempt in range(MAX_CODE_RETRIES + 1):
+                    code = self.inject_python_context(current_code, step_id=step.id)
+                    out = await self.sandbox.run_python(code)
 
-                output_text = out.get("output", "")
-                error = out.get("error")
-                status = "success" if not error else "error"
-                
-                output_val = None
-                
-                if "__RESULT__:" in output_text:
-                    parts = output_text.split("__RESULT__:", 1)
-                    try:
-                        res_str = parts[1].strip().split("\n")[0]
-                        output_val = json.loads(res_str)
-                    except:
-                        pass
-                
-                if "__TRACE_VARS__:" in output_text:
-                    trace_parts = output_text.split("__TRACE_VARS__:", 1)
-                    try:
-                        trace_str = trace_parts[1].strip().split("\n")[0]
-                        trace_vars = json.loads(trace_str)
-                        for k, v in trace_vars.items():
-                            # Skip internals and current step ID to prevent shadowing
-                            if k.startswith("_") or k == step.id:
-                                continue
-                            self.context[k] = v
-                    except:
-                        pass
-                
-                if "__TRACE_ERROR__:" in output_text:
-                    trace_err_parts = output_text.split("__TRACE_ERROR__:", 1)
-                    error = trace_err_parts[1].strip().split("\n")[0]
-                    status = "error"
+                    output_text = out.get("output", "")
+                    error = out.get("error")
+                    status = "success" if not error else "error"
+                    
+                    output_val = None
+                    
+                    if "__RESULT__:" in output_text:
+                        parts = output_text.split("__RESULT__:", 1)
+                        try:
+                            res_str = parts[1].strip().split("\n")[0]
+                            output_val = json.loads(res_str)
+                        except:
+                            pass
+                    
+                    if "__TRACE_VARS__:" in output_text:
+                        trace_parts = output_text.split("__TRACE_VARS__:", 1)
+                        try:
+                            trace_str = trace_parts[1].strip().split("\n")[0]
+                            trace_vars = json.loads(trace_str)
+                            for k, v in trace_vars.items():
+                                # Skip internals and current step ID to prevent shadowing
+                                if k.startswith("_") or k == step.id:
+                                    continue
+                                self.context[k] = v
+                        except:
+                            pass
+                    
+                    if "__TRACE_ERROR__:" in output_text:
+                        trace_err_parts = output_text.split("__TRACE_ERROR__:", 1)
+                        error = trace_err_parts[1].strip().split("\n")[0]
+                        status = "error"
 
-                # Clean up output_text for display (remove markers)
+                    # If successful, return the result
+                    if status == "success":
+                        # Clean up output_text for display (remove markers)
+                        display_text = output_text
+                        for marker in ["__RESULT__:", "__TRACE_VARS__:", "__TRACE_ERROR__:"]:
+                            if marker in display_text:
+                                display_text = display_text.split(marker)[0]
+
+                        return StepResult(
+                            step_id=step.id,
+                            status=status,
+                            output=output_val if output_val is not None else display_text.strip(),
+                            error=None,
+                        )
+                    
+                    # If failed and we have retries left, try to fix the code
+                    last_error = error
+                    if attempt < MAX_CODE_RETRIES:
+                        logger.info(f"Step {step.id} failed (attempt {attempt + 1}/{MAX_CODE_RETRIES + 1}), attempting auto-fix...")
+                        fixed_code = await self._regenerate_code(
+                            step=step,
+                            original_code=current_code,
+                            error=error
+                        )
+                        if fixed_code and fixed_code != current_code:
+                            current_code = fixed_code
+                            logger.debug(f"Regenerated code for step {step.id}")
+                        else:
+                            # Could not regenerate different code, stop retrying
+                            logger.debug(f"Could not regenerate different code for step {step.id}")
+                            break
+
+                # All retries exhausted, return the failure
                 display_text = output_text
                 for marker in ["__RESULT__:", "__TRACE_VARS__:", "__TRACE_ERROR__:"]:
                     if marker in display_text:
@@ -261,9 +361,9 @@ class Executor:
 
                 return StepResult(
                     step_id=step.id,
-                    status=status,
+                    status="error",
                     output=output_val if output_val is not None else display_text.strip(),
-                    error=error,
+                    error=last_error,
                 )
 
             # Tool execution

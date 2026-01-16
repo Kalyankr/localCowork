@@ -117,6 +117,42 @@
         .step.error .step-status::before { content: "❌"; }
         .step.skipped .step-status::before { content: "⊘"; opacity: 0.5; }
         
+        /* Accordion */
+        .accordion-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 0.5rem 0;
+            user-select: none;
+        }
+        .accordion-header:hover {
+            color: var(--accent);
+        }
+        .accordion-toggle {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            transition: transform 0.2s;
+        }
+        .accordion-toggle.open {
+            transform: rotate(180deg);
+        }
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .accordion-content.open {
+            max-height: 1000px;
+        }
+        .step-count {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-left: 0.5rem;
+        }
+        .step-count .done { color: var(--success); }
+        .step-count .error { color: var(--error); }
+        
         /* Summary */
         .summary {
             background: linear-gradient(135deg, #1e3a2f 0%, #1a1a1a 100%);
@@ -402,12 +438,43 @@
                 `;
             }).join('');
 
+            // Count completed and failed steps
+            const doneCount = Object.values(statuses).filter(s => s === 'success').length;
+            const errorCount = Object.values(statuses).filter(s => s === 'error').length;
+            const totalSteps = plan.steps.length;
+            const allDone = (doneCount + errorCount) === totalSteps && totalSteps > 0;
+            
+            // Build status summary
+            let statusSummary = '';
+            if (doneCount > 0 || errorCount > 0) {
+                statusSummary = `<span class="step-count">`;
+                if (doneCount > 0) statusSummary += `<span class="done">✓${doneCount}</span>`;
+                if (errorCount > 0) statusSummary += ` <span class="error">✗${errorCount}</span>`;
+                statusSummary += `</span>`;
+            }
+
+            // Determine if accordion should be open (while running, keep it visible)
+            const isOpen = !allDone;
+            const openClass = isOpen ? 'open' : '';
+
             return `
                 <div class="plan-section">
-                    <h3>Plan (${plan.steps.length} steps)</h3>
-                    ${steps}
+                    <div class="accordion-header" onclick="toggleAccordion(this)">
+                        <h3>Plan (${totalSteps} steps) ${statusSummary}</h3>
+                        <span class="accordion-toggle ${openClass}">▼</span>
+                    </div>
+                    <div class="accordion-content ${openClass}">
+                        ${steps}
+                    </div>
                 </div>
             `;
+        }
+
+        function toggleAccordion(header) {
+            const toggle = header.querySelector('.accordion-toggle');
+            const content = header.nextElementSibling;
+            toggle.classList.toggle('open');
+            content.classList.toggle('open');
         }
 
         function escapeHtml(text) {
