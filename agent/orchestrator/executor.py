@@ -1,25 +1,35 @@
 import os
 import json
 import re
+import logging
 from agent.orchestrator.models import StepResult
 from agent.orchestrator.tool_registry import ToolRegistry
 from agent.sandbox.sandbox_runner import Sandbox
 
+logger = logging.getLogger(__name__)
+
 
 class Executor:
+    """Executes a plan by running steps in dependency order."""
+    
     def __init__(self, plan, tool_registry: ToolRegistry, sandbox: Sandbox):
         self.plan = plan
         self.tool_registry = tool_registry
         self.sandbox = sandbox
         self.context = {}  # store step outputs
 
-    async def run(self):
+    async def run(self) -> dict:
+        """Execute all steps in the plan."""
         results = {}
+        logger.info(f"Executing plan with {len(self.plan.steps)} steps")
 
         for step in self.plan.steps:
+            logger.debug(f"Processing step: {step.id} (action={step.action})")
+            
             # Check dependencies
             failed_deps = [d for d in step.depends_on if d in results and results[d].status == "error"]
             if failed_deps:
+                logger.warning(f"Step {step.id} skipped due to failed deps: {failed_deps}")
                 results[step.id] = StepResult(
                     step_id=step.id,
                     status="skipped",
@@ -29,6 +39,7 @@ class Executor:
 
             result = await self.run_step(step)
             results[step.id] = result
+            logger.info(f"Step {step.id}: {result.status}")
 
             # Store output in context for later steps
             if result.status == "success" and result.output is not None:
