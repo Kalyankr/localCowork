@@ -234,26 +234,6 @@ ruff format .
 
 ---
 
-## Roadmap
-
-See [docs/progress.md](docs/progress.md) for the full enhancement roadmap.
-
-- [x] Parallel step execution
-- [x] Per-step progress display
-- [x] Plan confirmation & dry-run
-- [ ] Retry on failure
-- [ ] Config file support
-- [ ] Session history
-- [ ] Web search tool
-
----
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
 <p align="center">
   Made with ❤️ for local-first AI
 </p>
