@@ -1,15 +1,14 @@
 import typer
 import asyncio
 import logging
-from pathlib import Path
-from typing import Optional
+import json
+import webbrowser
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.syntax import Syntax
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
-from rich.status import Status
+from rich import box
 
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
@@ -17,237 +16,280 @@ from agent.tools import create_default_registry
 from agent.sandbox.sandbox_runner import Sandbox
 from agent.llm.client import LLMError
 
+__version__ = "0.1.0"
+
 # Configure logging
 logging.basicConfig(
-    level=logging.WARNING,  # Reduce noise during normal operation
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+def version_callback(value: bool):
+    if value:
+        console.print(f"[bold cyan]localcowork[/bold cyan] version {__version__}")
+        raise typer.Exit()
+
 app = typer.Typer(
     name="localcowork",
-    help="Your Local AI Assistant - run natural language tasks from the CLI.",
+    help="🤖 Your Local AI Assistant — run natural language tasks from the CLI.",
     add_completion=False,
+    no_args_is_help=True,
 )
 
-# Use shared registry
-tool_registry = create_default_registry()
-sandbox = Sandbox()
+# Use shared registry (lazy loaded)
+_tool_registry = None
+_sandbox = None
+
+def get_tools():
+    global _tool_registry, _sandbox
+    if _tool_registry is None:
+        _tool_registry = create_default_registry()
+        _sandbox = Sandbox()
+    return _tool_registry, _sandbox
 
 
-def format_output_item(item) -> str:
-    if isinstance(item, dict):
-        path = item.get("path", "")
-        name = item.get("name", "")
-        is_dir = item.get("is_dir", False)
-        if is_dir:
-            return f"[bold blue]📁 {name}[/bold blue]"
-        else:
-            return f"[green]📄 {name}[/green]"
-            
-    p = Path(str(item)).expanduser()
-    if p.is_dir():
-        return f"[bold blue]📁 {p.name}[/bold blue]"
-    else:
-        return f"[green]📄 {p.name}[/green]"
+@app.callback()
+def main_callback(
+    version: bool = typer.Option(None, "--version", "-V", callback=version_callback, is_eager=True, help="Show version and exit"),
+):
+    """LocalCowork - AI-powered local task automation."""
+    pass
 
 
 @app.command()
 def run(
-    request: str,
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation and execute immediately"),
-    no_parallel: bool = typer.Option(False, "--no-parallel", "-s", help="Run steps sequentially instead of in parallel"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
+    request: str = typer.Argument(..., help="Natural language task description"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    no_parallel: bool = typer.Option(False, "--no-parallel", "-s", help="Run steps sequentially"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show plan without executing"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output (just summary)"),
+    output_json: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ):
-    """Run a natural-language task directly from the CLI."""
+    """Run a natural-language task."""
     
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
         logging.getLogger("agent").setLevel(logging.DEBUG)
 
-    console.print(Panel.fit(f"[bold cyan]🤖 Generating Plan[/bold cyan]\n{request}"))
+    tool_registry, sandbox = get_tools()
 
-    try:
-        plan = generate_plan(request)
-    except LLMError as e:
-        console.print(f"[bold red]❌ LLM Error:[/bold red] {e}")
-        raise typer.Exit(code=1)
-    except Exception as e:
-        console.print(f"[bold red]❌ Failed to generate plan:[/bold red] {e}")
-        logger.exception("Plan generation failed")
-        raise typer.Exit(code=1)
+    # Planning phase
+    if not quiet and not output_json:
+        console.print()
+        console.print(f"[dim]Task:[/dim] {request}")
+        console.print()
+        with console.status("[bold cyan]Planning...[/bold cyan]", spinner="dots"):
+            try:
+                plan = generate_plan(request)
+            except LLMError as e:
+                console.print(f"[bold red]✗ LLM Error:[/bold red] {e}")
+                raise typer.Exit(code=1)
+            except Exception as e:
+                console.print(f"[bold red]✗ Planning failed:[/bold red] {e}")
+                logger.exception("Plan generation failed")
+                raise typer.Exit(code=1)
+    else:
+        try:
+            plan = generate_plan(request)
+        except (LLMError, Exception) as e:
+            if output_json:
+                print(json.dumps({"error": str(e)}))
+            raise typer.Exit(code=1)
 
-    # Pretty-print the plan JSON
-    plan_json = plan.model_dump_json(indent=2)
-    console.print(
-        Panel(
-            Syntax(plan_json, "json", theme="monokai", line_numbers=False),
+    # Display plan
+    if not quiet and not output_json:
+        plan_table = Table(
             title="📋 Plan",
-            border_style="cyan",
+            box=box.ROUNDED,
+            title_style="bold cyan",
+            show_header=True,
+            header_style="bold",
         )
-    )
-    
-    # Show step summary
-    console.print(f"\n[bold]Steps:[/bold] {len(plan.steps)} total")
-    for i, step in enumerate(plan.steps, 1):
-        deps = f" (depends: {', '.join(step.depends_on)})" if step.depends_on else ""
-        desc = step.description or step.action
-        console.print(f"  {i}. [cyan]{step.id}[/cyan]: {desc}{deps}")
-    console.print()
-    
-    # Dry run mode - exit after showing plan
+        plan_table.add_column("#", style="dim", width=3)
+        plan_table.add_column("Step", style="cyan", width=20)
+        plan_table.add_column("Action", style="yellow", width=12)
+        plan_table.add_column("Description", style="white")
+        plan_table.add_column("Depends On", style="dim", width=15)
+
+        for i, step in enumerate(plan.steps, 1):
+            deps = ", ".join(step.depends_on) if step.depends_on else "—"
+            desc = step.description or "—"
+            plan_table.add_row(str(i), step.id, step.action, desc[:50], deps)
+
+        console.print(plan_table)
+        console.print()
+
+    # Dry run exits here
     if dry_run:
-        console.print("[yellow]Dry run mode - no changes made.[/yellow]")
+        if output_json:
+            print(json.dumps({"plan": plan.model_dump()}))
+        else:
+            console.print("[yellow]Dry run — no changes made.[/yellow]")
         raise typer.Exit(code=0)
-    
-    # Confirmation prompt (unless --yes)
-    if not yes:
-        confirm = typer.confirm("Execute this plan?", default=True)
-        if not confirm:
-            console.print("[yellow]Cancelled.[/yellow]")
+
+    # Confirmation
+    if not yes and not quiet and not output_json:
+        if not typer.confirm("Execute this plan?", default=True):
+            console.print("[dim]Cancelled.[/dim]")
             raise typer.Exit(code=0)
 
-    # Progress tracking state
+    # Execution phase
     step_status = {}
-    step_descriptions = {step.id: step.description or step.action for step in plan.steps}
     total_steps = len(plan.steps)
     completed_count = 0
-    
+
     def build_progress_table() -> Table:
-        """Build a table showing current step statuses."""
-        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
+        table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+        table.add_column("Status", width=10)
         table.add_column("Step", style="cyan", width=20)
-        table.add_column("Status", width=12)
-        table.add_column("Description", style="dim")
-        
+        table.add_column("Info", style="dim")
+
         for step in plan.steps:
             status = step_status.get(step.id, "pending")
-            desc = step_descriptions.get(step.id, "")[:40]
+            desc = (step.description or step.action)[:35]
             
-            if status == "pending":
-                status_text = "[dim]⏳ pending[/dim]"
-            elif status == "starting":
-                status_text = "[yellow]▶ running[/yellow]"
-            elif status == "success":
-                status_text = "[green]✓ done[/green]"
-            elif status == "error":
-                status_text = "[red]✗ failed[/red]"
-            elif status == "skipped":
-                status_text = "[dim]⊘ skipped[/dim]"
-            else:
-                status_text = f"[yellow]{status}[/yellow]"
-            
-            table.add_row(step.id, status_text, desc)
-        
+            status_icons = {
+                "pending": "[dim]○ pending[/dim]",
+                "starting": "[yellow]● running[/yellow]",
+                "success": "[green]✓ done[/green]",
+                "error": "[red]✗ failed[/red]",
+                "skipped": "[dim]◌ skipped[/dim]",
+            }
+            status_text = status_icons.get(status, f"[yellow]{status}[/yellow]")
+            table.add_row(status_text, step.id, desc)
+
         return table
-    
+
     def on_progress(step_id: str, status: str, current: int, total: int):
-        """Callback for step progress updates."""
         nonlocal completed_count
         step_status[step_id] = status
         if status in ("success", "error", "skipped"):
             completed_count += 1
-    
-    # Create executor with parallel mode
+
     parallel_mode = not no_parallel
     executor = Executor(
-        plan=plan, 
-        tool_registry=tool_registry, 
+        plan=plan,
+        tool_registry=tool_registry,
         sandbox=sandbox,
         on_progress=on_progress,
         parallel=parallel_mode,
     )
 
-    mode_text = "⚡ parallel" if parallel_mode else "📝 sequential"
-    console.print(Panel.fit(f"[bold green]Executing Steps[/bold green] ({mode_text})"))
+    if not quiet and not output_json:
+        mode = "[green]parallel[/green]" if parallel_mode else "[yellow]sequential[/yellow]"
+        console.print(f"[bold]Executing[/bold] ({mode})")
+        console.print()
 
-    # Execute with live progress display
-    async def run_with_live_display():
-        results = await executor.run()
-        return results
-    
-    with Live(build_progress_table(), console=console, refresh_per_second=4) as live:
-        async def run_and_update():
-            # Create a task to periodically update the display
-            async def updater():
-                while completed_count < total_steps:
-                    live.update(build_progress_table())
-                    await asyncio.sleep(0.25)
-            
-            # Run both the executor and the updater
-            update_task = asyncio.create_task(updater())
-            try:
-                results = await executor.run()
-                return results
-            finally:
-                update_task.cancel()
+        with Live(build_progress_table(), console=console, refresh_per_second=4) as live:
+            async def run_and_update():
+                async def updater():
+                    while completed_count < total_steps:
+                        live.update(build_progress_table())
+                        await asyncio.sleep(0.2)
+
+                update_task = asyncio.create_task(updater())
                 try:
-                    await update_task
-                except asyncio.CancelledError:
-                    pass
-        
-        results = asyncio.run(run_and_update())
-        # Final update
-        live.update(build_progress_table())
-    
-    # Summary line
+                    return await executor.run()
+                finally:
+                    update_task.cancel()
+                    try:
+                        await update_task
+                    except asyncio.CancelledError:
+                        pass
+
+            results = asyncio.run(run_and_update())
+            live.update(build_progress_table())
+    else:
+        results = asyncio.run(executor.run())
+
+    # Results summary
     success_count = sum(1 for r in results.values() if r.status == "success")
     failed_count = sum(1 for r in results.values() if r.status in ("error", "skipped"))
-    console.print(f"\n[bold]Completed:[/bold] [green]{success_count} succeeded[/green], [red]{failed_count} failed/skipped[/red]")
 
-    # Display results in a table
-    table = Table(title="Execution Results", show_lines=True)
-    table.add_column("Step ID", style="cyan", no_wrap=True)
-    table.add_column("Status", style="green")
-    table.add_column("Output / Error", style="white")
-
-    for step_id, result in results.items():
-        output = result.output
-        error = result.error
-
-        if isinstance(output, list):
-            text = "\n".join(format_output_item(item) for item in output)
-        elif isinstance(output, bool):
-            text = "[green]✔ Yes[/green]" if output else "[red]✘ No[/red]"
-        elif output:
-            text = str(output)
-        else:
-            text = ""
-
-        if error:
-            if text:
-                text += f"\n\n[red]Error: {error}[/red]"
-            else:
-                text = f"[red]{error}[/red]"
-
-        table.add_row(step_id, result.status, text)
-
-    console.print(table)
-
-    # FINAL SUMMARY
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold cyan]Generating final summary...[/bold cyan]"),
-        transient=True,
-    ) as progress:
-        progress.add_task("Summarizing...", total=None)
+    if output_json:
+        # Generate summary for JSON output too
         from agent.orchestrator.planner import summarize_results
         summary = summarize_results(request, results)
+        output = {
+            "plan": plan.model_dump(),
+            "results": {k: v.model_dump() for k, v in results.items()},
+            "summary": summary,
+            "stats": {"success": success_count, "failed": failed_count},
+        }
+        print(json.dumps(output, indent=2))
+        raise typer.Exit(code=0 if failed_count == 0 else 1)
 
-    console.print(Panel(summary, title="Summary", border_style="green"))
+    if not quiet:
+        console.print()
+        console.print(f"[bold]Result:[/bold] [green]{success_count} succeeded[/green], [red]{failed_count} failed[/red]")
+
+        # Show errors
+        for step_id, result in results.items():
+            if result.error:
+                console.print(f"  [red]✗ {step_id}:[/red] {result.error}")
+
+        console.print()
+
+    # Generate summary
+    if not quiet:
+        with console.status("[bold cyan]Summarizing...[/bold cyan]", spinner="dots"):
+            from agent.orchestrator.planner import summarize_results
+            summary = summarize_results(request, results)
+        console.print(Panel(summary, title="[bold green]Summary[/bold green]", border_style="green", box=box.ROUNDED))
+    else:
+        from agent.orchestrator.planner import summarize_results
+        summary = summarize_results(request, results)
+        console.print(summary)
+
+    raise typer.Exit(code=0 if failed_count == 0 else 1)
 
 
 @app.command()
-def serve(host: str = "127.0.0.1", port: int = 8000):
-    """Start the FastAPI server."""
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind to"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to bind to"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open browser automatically"),
+):
+    """Start the web UI server."""
     import uvicorn
 
-    console.print(
-        Panel.fit(f"[bold green]Starting API server[/bold green]\n{host}:{port}")
-    )
-    uvicorn.run("agent.orchestrator.server:app", host=host, port=port, reload=True)
+    url = f"http://{host}:{port}"
+    console.print()
+    console.print(Panel.fit(
+        f"[bold green]LocalCowork Server[/bold green]\n\n"
+        f"[dim]URL:[/dim] {url}\n"
+        f"[dim]Press Ctrl+C to stop[/dim]",
+        border_style="green",
+        box=box.ROUNDED,
+    ))
+
+    if open_browser:
+        webbrowser.open(url)
+
+    uvicorn.run("agent.orchestrator.server:app", host=host, port=port, reload=True, log_level="warning")
+
+
+@app.command()
+def plan(
+    request: str = typer.Argument(..., help="Natural language task description"),
+):
+    """Generate and display a plan without executing it."""
+    console.print()
+    with console.status("[bold cyan]Planning...[/bold cyan]", spinner="dots"):
+        try:
+            plan = generate_plan(request)
+        except LLMError as e:
+            console.print(f"[bold red]✗ LLM Error:[/bold red] {e}")
+            raise typer.Exit(code=1)
+        except Exception as e:
+            console.print(f"[bold red]✗ Planning failed:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+    print(plan.model_dump_json(indent=2))
 
 
 def main():
