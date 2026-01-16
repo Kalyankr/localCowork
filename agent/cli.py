@@ -6,6 +6,7 @@ import webbrowser
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.tree import Tree
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
 from rich import box
@@ -26,6 +27,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+def friendly_error(error: str) -> tuple[str, str]:
+    """Convert raw Python errors to user-friendly messages.
+    
+    Returns: (friendly_message, technical_detail)
+    """
+    error_lower = error.lower()
+    
+    # File/path errors
+    if "filenotfounderror" in error_lower or "no such file" in error_lower:
+        return "File not found", error.split(":")[-1].strip() if ":" in error else error
+    if "permissionerror" in error_lower or "permission denied" in error_lower:
+        return "Permission denied", "Check file permissions or run with elevated access"
+    if "isadirectoryerror" in error_lower:
+        return "Expected file, got directory", error.split(":")[-1].strip() if ":" in error else error
+    
+    # Network errors
+    if "connectionerror" in error_lower or "connection refused" in error_lower:
+        return "Connection failed", "Service may be offline or unreachable"
+    if "timeouterror" in error_lower or "timed out" in error_lower:
+        return "Request timed out", "Try again or check network connection"
+    
+    # Docker/sandbox errors
+    if "docker" in error_lower:
+        return "Docker error", "Ensure Docker is running and accessible"
+    if "container" in error_lower:
+        return "Sandbox error", "Failed to run code in isolated environment"
+    
+    # JSON/parsing errors
+    if "jsondecodeerror" in error_lower or "json" in error_lower:
+        return "Invalid data format", "Could not parse response"
+    
+    # Python runtime errors
+    if "nameerror" in error_lower:
+        return "Code error", "Variable or function not defined"
+    if "typeerror" in error_lower:
+        return "Type mismatch", "Wrong data type used in operation"
+    if "valueerror" in error_lower:
+        return "Invalid value", error.split(":")[-1].strip() if ":" in error else error
+    if "keyerror" in error_lower:
+        return "Missing key", error.split(":")[-1].strip() if ":" in error else error
+    if "indexerror" in error_lower:
+        return "Index out of range", "List or array access failed"
+    if "attributeerror" in error_lower:
+        return "Missing attribute", "Object doesn't have expected property"
+    if "importerror" in error_lower or "modulenotfounderror" in error_lower:
+        return "Missing dependency", error.split(":")[-1].strip() if ":" in error else error
+    if "zerodivisionerror" in error_lower:
+        return "Math error", "Division by zero"
+    if "memoryerror" in error_lower:
+        return "Out of memory", "Task requires too much memory"
+    
+    # Dependency errors
+    if "dependency failed" in error_lower:
+        return "Skipped", "Previous step failed"
+    
+    # LLM errors
+    if "ollama" in error_lower or "llm" in error_lower:
+        return "AI service error", "Check if Ollama is running"
+    
+    # Generic fallback - try to extract useful part
+    if len(error) > 80:
+        # Trim long errors, keep the meaningful part
+        if ":" in error:
+            parts = error.split(":")
+            return "Error", parts[-1].strip()[:60]
+        return "Error", error[:60] + "…"
+    
+    return "Error", error
+
 
 def version_callback(value: bool):
     if value:
@@ -68,6 +139,7 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show plan without executing"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output (just summary)"),
     output_json: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    show_plan: bool = typer.Option(False, "--show-plan", "-p", help="Expand plan details"),
 ):
     """Run a natural-language task."""
     
@@ -86,10 +158,16 @@ def run(
             try:
                 plan = generate_plan(request)
             except LLMError as e:
-                console.print(f"[bold red]✗ LLM Error:[/bold red] {e}")
+                friendly_msg, detail = friendly_error(str(e))
+                console.print(f"[bold red]✗ AI Error:[/bold red] {friendly_msg}")
+                console.print(f"  [dim]{detail}[/dim]")
+                if verbose:
+                    console.print(f"  [dim]Technical: {e}[/dim]")
                 raise typer.Exit(code=1)
             except Exception as e:
-                console.print(f"[bold red]✗ Planning failed:[/bold red] {e}")
+                friendly_msg, detail = friendly_error(str(e))
+                console.print(f"[bold red]✗ Planning failed:[/bold red] {friendly_msg}")
+                console.print(f"  [dim]{detail}[/dim]")
                 logger.exception("Plan generation failed")
                 raise typer.Exit(code=1)
     else:
@@ -114,27 +192,43 @@ def run(
             console.print("[dim]No response[/dim]")
         raise typer.Exit(code=0)
 
-    # Display plan
+    # Display plan (collapsible accordion-style)
     if not quiet and not output_json:
-        plan_table = Table(
-            title="📋 Plan",
-            box=box.ROUNDED,
-            title_style="bold cyan",
-            show_header=True,
-            header_style="bold",
+        # Count actions by type
+        action_counts = {}
+        for step in plan.steps:
+            action_counts[step.action] = action_counts.get(step.action, 0) + 1
+        
+        actions_summary = ", ".join(f"{v}× {k}" for k, v in action_counts.items())
+        
+        # Always show compact summary
+        console.print(
+            Panel(
+                f"[bold]{len(plan.steps)} steps[/bold] — {actions_summary}",
+                title="📋 Plan",
+                title_align="left",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
         )
-        plan_table.add_column("#", style="dim", width=3)
-        plan_table.add_column("Step", style="cyan", width=20)
-        plan_table.add_column("Action", style="yellow", width=12)
-        plan_table.add_column("Description", style="white")
-        plan_table.add_column("Depends On", style="dim", width=15)
-
-        for i, step in enumerate(plan.steps, 1):
-            deps = ", ".join(step.depends_on) if step.depends_on else "—"
-            desc = step.description or "—"
-            plan_table.add_row(str(i), step.id, step.action, desc[:50], deps)
-
-        console.print(plan_table)
+        
+        # Expand details if --show-plan or user wants to see
+        expand_plan = show_plan or dry_run
+        if not expand_plan and not yes:
+            expand_plan = typer.confirm("Show plan details?", default=False)
+        
+        if expand_plan:
+            # Build tree view of the plan
+            tree = Tree("[bold cyan]Steps[/bold cyan]", guide_style="dim")
+            for i, step in enumerate(plan.steps, 1):
+                deps = f" [dim](← {', '.join(step.depends_on)})[/dim]" if step.depends_on else ""
+                desc = f" — {step.description[:40]}…" if step.description and len(step.description) > 40 else (f" — {step.description}" if step.description else "")
+                branch = tree.add(f"[yellow]{step.action}[/yellow]{deps}")
+                branch.add(f"[dim]{i}. {step.id}{desc}[/dim]")
+            
+            console.print(tree)
+        
         console.print()
 
     # Dry run exits here
@@ -239,12 +333,36 @@ def run(
 
     if not quiet:
         console.print()
-        console.print(f"[bold]Result:[/bold] [green]{success_count} succeeded[/green], [red]{failed_count} failed[/red]")
+        
+        # Compact result summary
+        result_icon = "✓" if failed_count == 0 else "⚠"
+        result_style = "green" if failed_count == 0 else "yellow"
+        console.print(
+            Panel(
+                f"[{result_style}]{result_icon}[/{result_style}] [green]{success_count} succeeded[/green], [red]{failed_count} failed[/red]",
+                title="[bold]Result[/bold]",
+                title_align="left",
+                border_style=result_style,
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+        )
 
-        # Show errors
-        for step_id, result in results.items():
-            if result.error:
-                console.print(f"  [red]✗ {step_id}:[/red] {result.error}")
+        # Show errors in expandable tree if any
+        errors = [(step_id, result.error) for step_id, result in results.items() if result.error]
+        if errors:
+            # Show friendly error summary first
+            console.print()
+            for step_id, error in errors:
+                friendly_msg, detail = friendly_error(error)
+                console.print(f"  [red]✗[/red] [bold]{step_id}:[/bold] {friendly_msg} — [dim]{detail}[/dim]")
+            
+            # Offer to show raw errors for debugging
+            if verbose or typer.confirm("Show technical details?", default=False):
+                error_tree = Tree("[dim]Technical Details[/dim]", guide_style="dim")
+                for step_id, error in errors:
+                    error_tree.add(f"[dim]{step_id}: {error}[/dim]")
+                console.print(error_tree)
 
         console.print()
 
