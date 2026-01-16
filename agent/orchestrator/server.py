@@ -84,8 +84,17 @@ async def stream_task(task: TaskRequest, parallel: bool = True):
             results_dict = {k: v.model_dump() for k, v in results.items()}
             yield f"data: {json.dumps({'type': 'result', 'results': results_dict})}\n\n"
             
-            # Generate summary
-            summary = summarize_results(task.request, results)
+            # Check if this was a chat response (skip summarizer for chat)
+            is_chat = len(plan.steps) == 1 and plan.steps[0].action == "chat_op"
+            
+            if is_chat:
+                # For chat, use the response directly
+                chat_result = list(results.values())[0]
+                summary = str(chat_result.output) if chat_result.output else "Hello!"
+            else:
+                # Generate summary for task results
+                summary = summarize_results(task.request, results)
+            
             yield f"data: {json.dumps({'type': 'summary', 'summary': summary})}\n\n"
             
         except LLMError as e:

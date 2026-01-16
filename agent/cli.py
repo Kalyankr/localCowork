@@ -82,7 +82,7 @@ def run(
         console.print()
         console.print(f"[dim]Task:[/dim] {request}")
         console.print()
-        with console.status("[bold cyan]Planning...[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Thinking...[/bold cyan]", spinner="dots"):
             try:
                 plan = generate_plan(request)
             except LLMError as e:
@@ -99,6 +99,20 @@ def run(
             if output_json:
                 print(json.dumps({"error": str(e)}))
             raise typer.Exit(code=1)
+
+    # Check if this is a chat (conversational) request
+    is_chat = len(plan.steps) == 1 and plan.steps[0].action == "chat_op"
+
+    # For chat, use simplified flow
+    if is_chat and not output_json:
+        executor = Executor(plan=plan, tool_registry=tool_registry, sandbox=sandbox, parallel=False)
+        results = asyncio.run(executor.run())
+        chat_result = list(results.values())[0]
+        if chat_result.output:
+            console.print(Panel(str(chat_result.output), border_style="cyan", box=box.ROUNDED))
+        else:
+            console.print("[dim]No response[/dim]")
+        raise typer.Exit(code=0)
 
     # Display plan
     if not quiet and not output_json:
@@ -234,8 +248,16 @@ def run(
 
         console.print()
 
-    # Generate summary
-    if not quiet:
+    # Check if this was a chat response (single chat_op step)
+    is_chat = len(plan.steps) == 1 and plan.steps[0].action == "chat_op"
+    
+    if is_chat:
+        # For chat, just show the response directly - no summarizer
+        chat_result = list(results.values())[0]
+        if chat_result.output:
+            console.print(Panel(str(chat_result.output), border_style="cyan", box=box.ROUNDED))
+    elif not quiet:
+        # Generate summary for task results
         with console.status("[bold cyan]Summarizing...[/bold cyan]", spinner="dots"):
             from agent.orchestrator.planner import summarize_results
             summary = summarize_results(request, results)
