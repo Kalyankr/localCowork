@@ -1,11 +1,15 @@
 import typer
+import asyncio
 import logging
 from pathlib import Path
+from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.syntax import Syntax
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.live import Live
+from rich.status import Status
 
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
@@ -15,7 +19,7 @@ from agent.llm.client import LLMError
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,  # Reduce noise during normal operation
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
@@ -50,8 +54,16 @@ def format_output_item(item) -> str:
 
 
 @app.command()
-def run(request: str):
+def run(
+    request: str,
+    no_parallel: bool = typer.Option(False, "--no-parallel", "-s", help="Run steps sequentially instead of in parallel"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
+):
     """Run a natural-language task directly from the CLI."""
+    
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("agent").setLevel(logging.DEBUG)
 
     console.print(Panel.fit(f"[bold cyan]🤖 Generating Plan[/bold cyan]\n{request}"))
 
@@ -75,20 +87,48 @@ def run(request: str):
         )
     )
 
-    executor = Executor(plan=plan, tool_registry=tool_registry, sandbox=sandbox)
+    # Progress tracking state
+    step_status = {}
+    total_steps = len(plan.steps)
+    
+    def on_progress(step_id: str, status: str, current: int, total: int):
+        """Callback for step progress updates."""
+        step_status[step_id] = status
+    
+    # Create executor with parallel mode
+    parallel_mode = not no_parallel
+    executor = Executor(
+        plan=plan, 
+        tool_registry=tool_registry, 
+        sandbox=sandbox,
+        on_progress=on_progress,
+        parallel=parallel_mode,
+    )
 
-    console.print(Panel.fit("[bold green] Executing Steps[/bold green]"))
+    mode_text = "parallel" if parallel_mode else "sequential"
+    console.print(Panel.fit(f"[bold green]⚡ Executing Steps[/bold green] ({mode_text} mode)"))
 
+    # Execute with live progress display
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        transient=True,
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+        transient=False,
     ) as progress:
-        task = progress.add_task("Running...", total=None)
-        import asyncio
-
-        results = asyncio.run(executor.run())
-        progress.update(task, description="Done")
+        task = progress.add_task(f"[cyan]Running {total_steps} steps...", total=total_steps)
+        
+        async def run_with_progress():
+            results = await executor.run()
+            return results
+        
+        # Run executor
+        results = asyncio.run(run_with_progress())
+        
+        # Update final progress
+        completed = sum(1 for r in results.values() if r.status == "success")
+        progress.update(task, completed=total_steps, description=f"[green]✓ Completed {completed}/{total_steps} steps")
 
     # Display results in a table
     table = Table(title="Execution Results", show_lines=True)
