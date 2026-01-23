@@ -44,7 +44,7 @@ Execute this plan? [Y/n]: y
  move_imgs         ✓ done       file_op
  move_pdfs         ✓ done       file_op
 
-✅ Completed: 4 succeeded, 0 failed
+Completed: 4 succeeded, 0 failed
 ```
 
 ---
@@ -235,5 +235,5 @@ ruff format .
 ---
 
 <p align="center">
-  Made with ❤️ for local-first AI
+  Made for local-first AI
 </p>
