@@ -295,8 +295,11 @@ class ReActAgent:
     
     async def _execute_action(self, action: Action, context: Dict[str, Any]) -> StepResult:
         """Execute a single action and return the result."""
+        import subprocess
+        import os
+        
         try:
-            # Handle Python code execution
+            # Handle Python code execution (primary tool)
             if action.tool == "python":
                 code = action.args.get("code", "")
                 full_code = self._inject_context(code, context)
@@ -320,7 +323,44 @@ class ReActAgent:
                     output=parsed_output
                 )
             
-            # Handle regular tool execution
+            # Handle shell command execution (direct shell access)
+            if action.tool == "shell":
+                command = action.args.get("command", "")
+                cwd = action.args.get("cwd", os.path.expanduser("~"))
+                
+                try:
+                    result = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        timeout=60,
+                        cwd=cwd,
+                    )
+                    
+                    output = result.stdout.decode()
+                    stderr = result.stderr.decode()
+                    
+                    if result.returncode != 0:
+                        return StepResult(
+                            step_id=f"action_shell",
+                            status="error",
+                            output=output,
+                            error=f"Exit code {result.returncode}: {stderr}"
+                        )
+                    
+                    return StepResult(
+                        step_id=f"action_shell",
+                        status="success",
+                        output=output or stderr or "Command completed"
+                    )
+                except subprocess.TimeoutExpired:
+                    return StepResult(
+                        step_id=f"action_shell",
+                        status="error",
+                        error="Command timed out after 60s"
+                    )
+            
+            # Handle regular tool execution (helper tools)
             tool = self.tool_registry.get(action.tool)
             if not tool:
                 return StepResult(
@@ -402,29 +442,25 @@ class ReActAgent:
         return f"[{obs.source}] {content}"
     
     def _format_tools(self) -> str:
-        """Format available tools for the prompt."""
-        tools = self.tool_registry.list_tools()
-        # Add descriptions based on tool names
-        descriptions = {
-            "file_op": "File operations (list, read, write, move, copy, delete, mkdir)",
-            "web_op": "Web operations (fetch, search, download)",
-            "pdf_op": "PDF operations (extract text, merge, split)",
-            "data_op": "Data operations (csv/excel/json conversion, stats, filter)",
-            "text_op": "Text operations (summarize, extract, transform)",
-            "shell_op": "Shell commands (run safe commands, sysinfo)",
-            "json_op": "JSON operations (read, write, query, filter, merge)",
-            "archive_op": "Archive operations (zip, unzip, tar)",
-            "python": "Execute Python code (no file I/O, use variables from context)",
-            "done": "Signal that the goal is complete"
-        }
-        
-        lines = []
-        for tool in tools:
-            desc = descriptions.get(tool, "No description")
-            lines.append(f"- {tool}: {desc}")
-        lines.append("- done: Signal that the goal is complete")
-        
-        return "\n".join(lines)
+        """Format available tools for the prompt - emphasizing code-first."""
+        return """PRIMARY TOOLS (use these for most tasks):
+- python: Execute Python code with FULL access to files, network, and system
+  - Can read/write ANY file: open(), Path(), shutil
+  - Can make web requests: requests.get(), urllib
+  - Can run shell commands: subprocess.run()
+  - Has access to all standard libraries
+  Example: {"tool": "python", "args": {"code": "import os\\nfiles = os.listdir('~/Downloads')\\nprint(files)"}}
+
+- shell: Run any shell command directly
+  Example: {"tool": "shell", "args": {"command": "ls -la ~/Downloads"}}
+
+HELPER TOOLS (structured operations):
+- file_op: Structured file operations (list, read, write, move, copy, delete)
+- web_op: Web operations (fetch URL, search, download)
+- pdf_op: PDF operations (extract text, merge, split)
+- data_op: Data conversion (csv/excel/json)
+
+PREFER python for complex tasks - you can do ANYTHING with it."""
     
     def _format_result(self, result: StepResult) -> str:
         """Format a step result for observation."""
