@@ -43,6 +43,25 @@ class Settings(BaseSettings):
     # Execution Settings
     max_code_retries: int = 2
     parallel_execution: bool = True
+    
+    # Task Management Settings
+    workspace_dir: str = "~/.localcowork/workspaces"
+    task_history_file: str = "~/.localcowork/task_history.json"
+    require_approval: bool = True  # If True, plans require user approval before execution
+    max_task_history: int = 100  # Max tasks to keep in history
+    workspace_cleanup_days: int = 7  # Days before cleaning up old workspaces
+    
+    @property
+    def workspace_path(self) -> str:
+        """Expand workspace directory path."""
+        from pathlib import Path
+        return str(Path(self.workspace_dir).expanduser())
+    
+    @property
+    def history_path(self) -> str:
+        """Expand task history file path."""
+        from pathlib import Path
+        return str(Path(self.task_history_file).expanduser())
 
 
 @lru_cache
