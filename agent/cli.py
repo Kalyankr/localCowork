@@ -13,6 +13,7 @@ from rich import box
 
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
+from agent.orchestrator.react_agent import ReActAgent
 from agent.orchestrator.deps import get_tool_registry, get_sandbox
 from agent.llm.client import LLMError
 
@@ -139,6 +140,7 @@ def run(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output (just summary)"),
     output_json: bool = typer.Option(False, "--json", help="Output results as JSON"),
     show_plan: bool = typer.Option(False, "--show-plan", "-p", help="Expand plan details"),
+    agentic: bool = typer.Option(False, "--agentic", "-a", help="Use ReAct agent (step-by-step reasoning)"),
 ):
     """Run a natural-language task."""
     
@@ -147,6 +149,11 @@ def run(
         logging.getLogger("agent").setLevel(logging.DEBUG)
 
     tool_registry, sandbox = get_tools()
+
+    # Agentic mode uses ReAct loop instead of one-shot planning
+    if agentic:
+        _run_agentic(request, tool_registry, sandbox, verbose, quiet, output_json)
+        return
 
     # Planning phase
     if not quiet and not output_json:
@@ -385,6 +392,146 @@ def run(
         console.print(summary)
 
     raise typer.Exit(code=0 if failed_count == 0 else 1)
+
+
+def _run_agentic(request: str, tool_registry, sandbox, verbose: bool, quiet: bool, output_json: bool):
+    """Run task using ReAct agent (step-by-step reasoning)."""
+    
+    if not quiet and not output_json:
+        console.print()
+        console.print(f"[dim]Goal:[/dim] {request}")
+        console.print()
+        console.print("[bold cyan]🤖 Running in agentic mode (ReAct loop)[/bold cyan]")
+        console.print("[dim]The agent will reason step-by-step, adapting as it goes...[/dim]")
+        console.print()
+    
+    # Progress table for agentic mode
+    agent_steps = []
+    
+    def build_agent_table() -> Table:
+        table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+        table.add_column("#", width=3, style="dim")
+        table.add_column("Thinking", width=50)
+        table.add_column("Action", width=20, style="cyan")
+        table.add_column("Status", width=10)
+        
+        for step in agent_steps:
+            iteration, status, thought, action = step
+            status_icons = {
+                "thinking": "[yellow]○[/yellow]",
+                "success": "[green]✓[/green]",
+                "error": "[red]✗[/red]",
+                "completed": "[green]★[/green]",
+            }
+            status_icon = status_icons.get(status, "[dim]?[/dim]")
+            thought_short = (thought[:47] + "...") if len(thought) > 50 else thought
+            table.add_row(str(iteration), thought_short, action or "-", status_icon)
+        
+        return table
+    
+    def on_progress(iteration: int, status: str, thought: str, action: str):
+        # Update or add step
+        for i, step in enumerate(agent_steps):
+            if step[0] == iteration:
+                agent_steps[i] = (iteration, status, thought, action)
+                return
+        agent_steps.append((iteration, status, thought, action))
+    
+    # Create agent
+    agent = ReActAgent(
+        tool_registry=tool_registry,
+        sandbox=sandbox,
+        on_progress=on_progress,
+        max_iterations=15,
+    )
+    
+    # Run with live display
+    if not quiet and not output_json:
+        with Live(build_agent_table(), console=console, refresh_per_second=4) as live:
+            async def run_with_updates():
+                result = await agent.run(request)
+                return result
+            
+            # Run agent with periodic table updates
+            async def run_agent():
+                task = asyncio.create_task(run_with_updates())
+                while not task.done():
+                    live.update(build_agent_table())
+                    await asyncio.sleep(0.25)
+                live.update(build_agent_table())
+                return await task
+            
+            state = asyncio.run(run_agent())
+    else:
+        state = asyncio.run(agent.run(request))
+    
+    # Output results
+    if output_json:
+        output = {
+            "mode": "agentic",
+            "goal": state.goal,
+            "status": state.status,
+            "steps": [
+                {
+                    "iteration": s.iteration,
+                    "thought": s.thought.reasoning,
+                    "action": s.action.tool if s.action else None,
+                    "result": s.result.status if s.result else None,
+                }
+                for s in state.steps
+            ],
+            "final_answer": state.final_answer,
+            "error": state.error,
+        }
+        print(json.dumps(output, indent=2, default=str))
+        raise typer.Exit(code=0 if state.status == "completed" else 1)
+    
+    if not quiet:
+        console.print()
+        
+        # Status summary
+        status_style = "green" if state.status == "completed" else "yellow" if state.status == "max_iterations" else "red"
+        status_icon = "✓" if state.status == "completed" else "⚠" if state.status == "max_iterations" else "✗"
+        
+        console.print(
+            Panel(
+                f"[{status_style}]{status_icon}[/{status_style}] {state.status.replace('_', ' ').title()} after {len(state.steps)} steps",
+                title="[bold]Agent Result[/bold]",
+                title_align="left",
+                border_style=status_style,
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+        )
+        
+        if state.final_answer:
+            console.print()
+            console.print(Panel(
+                state.final_answer,
+                title="[bold green]Summary[/bold green]",
+                border_style="green",
+                box=box.ROUNDED,
+            ))
+        
+        if state.error:
+            console.print()
+            console.print(f"[red]Error:[/red] {state.error}")
+        
+        # Show verbose step details if requested
+        if verbose and state.steps:
+            console.print()
+            tree = Tree("[dim]Step Details[/dim]", guide_style="dim")
+            for step in state.steps:
+                step_branch = tree.add(f"[yellow]Step {step.iteration}[/yellow]")
+                step_branch.add(f"[dim]Thought: {step.thought.reasoning[:100]}...[/dim]")
+                if step.action:
+                    step_branch.add(f"[cyan]Action: {step.action.tool}[/cyan]")
+                if step.result:
+                    result_style = "green" if step.result.status == "success" else "red"
+                    step_branch.add(f"[{result_style}]Result: {step.result.status}[/{result_style}]")
+            console.print(tree)
+    
+    raise typer.Exit(code=0 if state.status == "completed" else 1)
 
 
 @app.command()

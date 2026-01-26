@@ -227,3 +227,103 @@ The following variables are available from previous steps:
 ## FIXED CODE:
 """
 
+
+# =============================================================================
+# ReAct Agent Prompts (Agentic Architecture)
+# =============================================================================
+
+REACT_SYSTEM_PROMPT = """You are an autonomous AI agent that solves tasks step-by-step.
+
+You operate in a ReAct loop: Observe → Think → Act → Repeat
+
+For each step you must:
+1. OBSERVE: Look at the result of your previous action (or the initial goal)
+2. THINK: Reason about what to do next to achieve the goal
+3. ACT: Choose ONE tool to execute
+
+Be methodical. Don't rush. Verify your progress."""
+
+
+REACT_STEP_PROMPT = """You are an AI agent working toward a goal. Think step-by-step.
+
+## GOAL
+{goal}
+
+## PROGRESS
+Iteration: {iteration} / {max_iterations}
+
+## PREVIOUS STEPS
+{history}
+
+## CURRENT OBSERVATION
+{observation}
+
+## AVAILABLE CONTEXT (variables you can reference)
+{context}
+
+## AVAILABLE TOOLS
+{available_tools}
+
+## INSTRUCTIONS
+1. First, THINK about the current situation and what needs to be done next
+2. Decide if the goal is COMPLETE or if you need to take another action
+3. If not complete, choose ONE tool and specify its arguments
+
+## OUTPUT FORMAT (JSON only, no markdown)
+{{
+  "thought": "Your reasoning about the current situation and what to do next...",
+  "confidence": 0.0-1.0,
+  "is_complete": false,
+  "action": {{
+    "tool": "tool_name",
+    "args": {{}},
+    "description": "brief description of what this action does"
+  }}
+}}
+
+If the goal is COMPLETE, set is_complete to true and action to null:
+{{
+  "thought": "The goal has been achieved because...",
+  "confidence": 1.0,
+  "is_complete": true,
+  "action": null
+}}
+
+IMPORTANT:
+- Only use tools from the AVAILABLE TOOLS list
+- Reference context variables by their exact names in args
+- If a previous action failed, try a different approach
+- Be specific about file paths (use ~ for home, full paths preferred)
+
+YOUR RESPONSE (JSON only):"""
+
+
+REFLECTION_PROMPT = """You are reviewing whether an AI agent successfully completed its goal.
+
+## ORIGINAL GOAL
+{goal}
+
+## STEPS TAKEN
+{steps_summary}
+
+## FINAL CONTEXT (data gathered)
+{final_context}
+
+## YOUR TASK
+Determine if the goal was ACTUALLY achieved. Be critical but fair.
+
+Consider:
+1. Did the agent complete ALL parts of the request?
+2. Were there any errors that weren't recovered from?
+3. Is there evidence the goal was accomplished (in the context)?
+
+## OUTPUT FORMAT (JSON only)
+{{
+  "verified": true/false,
+  "reason": "Explanation of why the goal was or wasn't achieved",
+  "missing": ["list of things not completed, if any"]
+}}
+
+YOUR RESPONSE:"""
+
+
