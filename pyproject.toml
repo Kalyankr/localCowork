@@ -1,6 +1,6 @@
 [project]
 name = "localcowork"
-version = "0.1.0"
+version = "0.2.0"
 description = "A privacy-first AI assistant that runs entirely on your machine"
 readme = "README.md"
 requires-python = ">=3.12"
