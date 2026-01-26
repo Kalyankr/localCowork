@@ -19,7 +19,7 @@ from typing import Optional, List, Dict, Any, Callable
 from pydantic import BaseModel, Field
 
 from agent.llm.client import call_llm_json, call_llm
-from agent.llm.prompts import REACT_SYSTEM_PROMPT, REACT_STEP_PROMPT, REFLECTION_PROMPT
+from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
 from agent.orchestrator.tool_registry import ToolRegistry
 from agent.orchestrator.models import StepResult, TaskState
 from agent.sandbox.sandbox_runner import Sandbox
@@ -141,7 +141,7 @@ class ReActAgent:
                         )
                 
                 # Think: Ask LLM what to do next
-                thought, action = await self._think(state, current_obs, iteration)
+                thought, action, direct_response = await self._think(state, current_obs, iteration)
                 
                 # Create step record
                 step = AgentStep(
@@ -156,30 +156,42 @@ class ReActAgent:
                     action_desc = f"{action.tool}: {action.description}" if action else "thinking..."
                     self.on_progress(iteration, "thinking", thought.reasoning[:100], action_desc)
                 
-                # Check if agent thinks we're done
+                # Check if this is a direct response (conversation mode)
+                if direct_response and thought.is_goal_complete:
+                    state.steps.append(step)
+                    state.status = "completed"
+                    state.final_answer = direct_response
+                    logger.info("Conversation response - no verification needed")
+                    break
+                
+                # Check if agent thinks we're done (task mode)
                 if thought.is_goal_complete or (action and action.tool == "done"):
                     state.steps.append(step)
                     state.status = "completed"
-                    state.final_answer = thought.reasoning
+                    state.final_answer = direct_response or thought.reasoning
                     
-                    # Run reflection to verify
-                    reflection = await self._reflect(state)
-                    if not reflection["verified"]:
-                        # Agent was wrong, continue
-                        logger.info(f"Reflection failed: {reflection['reason']}")
-                        state.status = "running"
-                        state.final_answer = None
-                        # Add reflection as observation
-                        state.steps[-1] = AgentStep(
-                            iteration=iteration,
-                            observation=Observation(source="reflection", content=reflection),
-                            thought=thought,
-                            action=None
-                        )
-                        continue
-                    else:
-                        logger.info("Goal verified by reflection")
-                        break
+                    # Run reflection to verify (only for tasks, not conversations)
+                    if not direct_response:
+                        reflection = await self._reflect(state)
+                        if not reflection["verified"]:
+                            # Agent was wrong, continue
+                            logger.info(f"Reflection failed: {reflection['reason']}")
+                            state.status = "running"
+                            state.final_answer = None
+                            # Add reflection as observation
+                            state.steps[-1] = AgentStep(
+                                iteration=iteration,
+                                observation=Observation(source="reflection", content=reflection),
+                                thought=thought,
+                                action=None
+                            )
+                            continue
+                        else:
+                            # Use reflection summary if available
+                            if reflection.get("summary"):
+                                state.final_answer = reflection["summary"]
+                            logger.info("Goal verified by reflection")
+                    break
                 
                 # Act: Execute the chosen action
                 if action:
@@ -233,12 +245,12 @@ class ReActAgent:
         state: AgentState, 
         observation: Observation,
         iteration: int
-    ) -> tuple[Thought, Optional[Action]]:
+    ) -> tuple[Thought, Optional[Action], Optional[str]]:
         """
         Ask the LLM to reason about what to do next.
         
         Returns:
-            Tuple of (Thought, Action or None)
+            Tuple of (Thought, Action or None, Response or None)
         """
         # Build the prompt with history
         history = self._build_history(state)
@@ -262,21 +274,24 @@ class ReActAgent:
                 is_goal_complete=response.get("is_complete", False) or response.get("done", False)
             )
             
+            # Check for direct response (conversation mode)
+            direct_response = response.get("response")
+            
             action = None
             if "action" in response and response["action"]:
                 action_data = response["action"]
-                if isinstance(action_data, dict):
+                if isinstance(action_data, dict) and action_data.get("tool"):
                     action = Action(
                         tool=action_data.get("tool", ""),
                         args=action_data.get("args", {}),
                         description=action_data.get("description", "")
                     )
             
-            return thought, action
+            return thought, action, direct_response
             
         except Exception as e:
             logger.warning(f"Failed to parse LLM response: {e}")
-            return Thought(reasoning=f"Error parsing response: {e}", confidence=0), None
+            return Thought(reasoning=f"Error parsing response: {e}", confidence=0), None, None
     
     async def _execute_action(self, action: Action, context: Dict[str, Any]) -> StepResult:
         """Execute a single action and return the result."""
