@@ -1,19 +1,28 @@
+"""LLM client using official Ollama Python library.
+
+This module provides a clean interface to Ollama using the official library
+instead of raw HTTP requests. Benefits:
+- Cleaner API with typed responses
+- Built-in connection management
+- Async support ready
+- Better error handling
+"""
+
 import json
 import logging
-import requests
 import re
-from requests.exceptions import ConnectionError, Timeout, RequestException
+from typing import Optional, List, Dict, Any
+
+import ollama
+from ollama import ResponseError, RequestError
 
 from agent.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Configuration from centralized settings
-OLLAMA_URL = settings.ollama_url
 MODEL = settings.ollama_model
 TIMEOUT = settings.ollama_timeout
-
-# Retry settings for JSON generation
 MAX_JSON_RETRIES = settings.max_json_retries
 
 
@@ -22,32 +31,86 @@ class LLMError(Exception):
     pass
 
 
+# Create a client instance (reusable, connection pooled)
+_client: Optional[ollama.Client] = None
+
+
+def _get_client() -> ollama.Client:
+    """Get or create the Ollama client singleton."""
+    global _client
+    if _client is None:
+        # Extract host from the old URL format if needed
+        host = settings.ollama_url.replace("/api/generate", "").replace("/api/chat", "")
+        if host.endswith("/"):
+            host = host[:-1]
+        _client = ollama.Client(host=host, timeout=TIMEOUT)
+    return _client
+
+
 def call_llm(prompt: str) -> str:
     """
     Calls Ollama and returns raw text output.
     
+    Args:
+        prompt: The prompt to send to the model
+        
+    Returns:
+        The model's response text
+        
     Raises:
         LLMError: If the LLM request fails.
     """
-    payload = {
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_predict": 2048},
-    }
-
     try:
+        client = _get_client()
         logger.debug(f"Calling LLM with model={MODEL}")
-        response = requests.post(OLLAMA_URL, json=payload, timeout=TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data["response"]
-    except ConnectionError:
-        raise LLMError(f"Cannot connect to Ollama at {OLLAMA_URL}. Is it running?")
-    except Timeout:
-        raise LLMError(f"LLM request timed out after {TIMEOUT}s")
-    except RequestException as e:
+        
+        response = client.generate(
+            model=MODEL,
+            prompt=prompt,
+            options={"num_predict": settings.max_tokens},
+        )
+        
+        return response.response
+        
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
         raise LLMError(f"LLM request failed: {e}")
+
+
+def call_llm_chat(messages: List[Dict[str, str]]) -> str:
+    """
+    Calls Ollama with chat messages format.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        
+    Returns:
+        The assistant's response content
+        
+    Raises:
+        LLMError: If the LLM request fails.
+    """
+    try:
+        client = _get_client()
+        logger.debug(f"Calling LLM chat with model={MODEL}, {len(messages)} messages")
+        
+        response = client.chat(
+            model=MODEL,
+            messages=messages,
+            options={"num_predict": settings.max_tokens},
+        )
+        
+        return response.message.content
+        
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
+        raise LLMError(f"LLM chat request failed: {e}")
 
 
 def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
@@ -58,6 +121,12 @@ def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
     Args:
         prompt: The initial prompt to send
         retry_prompt: Optional simpler prompt to use on retry
+        
+    Returns:
+        Parsed JSON as a dictionary
+        
+    Raises:
+        LLMError: If JSON parsing fails after all retries
     """
     last_error = None
     
@@ -67,7 +136,6 @@ def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
             current_prompt = prompt
             if attempt > 0:
                 logger.info(f"JSON retry attempt {attempt + 1}/{MAX_JSON_RETRIES + 1}")
-                # Add explicit JSON reminder
                 current_prompt = prompt + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
             
             raw = call_llm(current_prompt)
@@ -85,7 +153,11 @@ def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
             if attempt < MAX_JSON_RETRIES:
                 continue
             else:
-                raise LLMError(f"Failed to get valid JSON after {MAX_JSON_RETRIES + 1} attempts. The AI model may be having trouble understanding the request. Please try rephrasing.")
+                raise LLMError(
+                    f"Failed to get valid JSON after {MAX_JSON_RETRIES + 1} attempts. "
+                    "The AI model may be having trouble understanding the request. "
+                    "Please try rephrasing."
+                )
 
 
 def repair_json(text: str) -> dict:
@@ -143,7 +215,7 @@ def repair_json(text: str) -> dict:
         if last_brace > start_idx:
             end_idx = last_brace + 1
         else:
-            json_like = text[start_idx:] + "}"  # Add missing closing brace
+            json_like = text[start_idx:] + "}"
             end_idx = len(json_like) + start_idx
     
     json_like = text[start_idx:end_idx] if end_idx != -1 else text[start_idx:]
@@ -183,7 +255,9 @@ def repair_json(text: str) -> dict:
     try:
         def quote_val(m):
             val = m.group(2).strip()
-            if not (val.startswith('"') or val.startswith("'") or val.startswith("[") or val.startswith("{") or val.isdigit() or val in ["true", "false", "null"]):
+            if not (val.startswith('"') or val.startswith("'") or 
+                    val.startswith("[") or val.startswith("{") or 
+                    val.isdigit() or val in ["true", "false", "null"]):
                 return f'"{m.group(1)}": "{val}"'
             return m.group(0)
 
@@ -201,3 +275,39 @@ def repair_json(text: str) -> dict:
         pass
     
     raise ValueError(f"Could not parse response as JSON")
+
+
+def list_models() -> List[str]:
+    """List available models from Ollama.
+    
+    Returns:
+        List of model names
+    """
+    try:
+        client = _get_client()
+        response = client.list()
+        return [model.model for model in response.models]
+    except Exception as e:
+        logger.warning(f"Failed to list models: {e}")
+        return []
+
+
+def check_model_exists(model_name: str = None) -> bool:
+    """Check if a model exists in Ollama.
+    
+    Args:
+        model_name: Model to check, defaults to configured model
+        
+    Returns:
+        True if model exists
+    """
+    model = model_name or MODEL
+    try:
+        models = list_models()
+        # Check for exact match or match without tag
+        return any(
+            m == model or m.split(":")[0] == model.split(":")[0]
+            for m in models
+        )
+    except Exception:
+        return False
