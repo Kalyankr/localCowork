@@ -47,12 +47,13 @@ def _get_client() -> ollama.Client:
     return _client
 
 
-def call_llm(prompt: str) -> str:
+def call_llm(prompt: str, force_json: bool = False) -> str:
     """
     Calls Ollama and returns raw text output.
     
     Args:
         prompt: The prompt to send to the model
+        force_json: If True, use Ollama's JSON mode to force valid JSON output
         
     Returns:
         The model's response text
@@ -62,13 +63,19 @@ def call_llm(prompt: str) -> str:
     """
     try:
         client = _get_client()
-        logger.debug(f"Calling LLM with model={MODEL}")
+        logger.debug(f"Calling LLM with model={MODEL}, force_json={force_json}")
         
-        response = client.generate(
-            model=MODEL,
-            prompt=prompt,
-            options={"num_predict": settings.max_tokens},
-        )
+        kwargs = {
+            "model": MODEL,
+            "prompt": prompt,
+            "options": {"num_predict": settings.max_tokens},
+        }
+        
+        # Use Ollama's native JSON mode if requested
+        if force_json:
+            kwargs["format"] = "json"
+        
+        response = client.generate(**kwargs)
         
         return response.response
         
@@ -116,7 +123,8 @@ def call_llm_chat(messages: List[Dict[str, str]]) -> str:
 def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
     """
     Calls Ollama and guarantees valid JSON output.
-    Retries with a simpler prompt if JSON parsing fails.
+    Uses Ollama's native JSON mode for reliable structured output.
+    Retries with repair logic if JSON parsing still fails.
     
     Args:
         prompt: The initial prompt to send
@@ -132,19 +140,19 @@ def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
     
     for attempt in range(MAX_JSON_RETRIES + 1):
         try:
-            # On retry, add a hint about the previous failure
             current_prompt = prompt
             if attempt > 0:
                 logger.info(f"JSON retry attempt {attempt + 1}/{MAX_JSON_RETRIES + 1}")
                 current_prompt = prompt + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
             
-            raw = call_llm(current_prompt)
+            # Use Ollama's native JSON mode for reliable output
+            raw = call_llm(current_prompt, force_json=True)
             
             # Try direct parse first
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
-                # Try repair
+                # Try repair as fallback
                 return repair_json(raw)
                 
         except (json.JSONDecodeError, ValueError) as e:
