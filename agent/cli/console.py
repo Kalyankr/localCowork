@@ -4,7 +4,6 @@ from rich.console import Console
 from rich.theme import Theme
 from rich.panel import Panel
 from rich.table import Table
-from rich.tree import Tree
 from rich import box
 
 # Custom theme for consistent styling

@@ -381,14 +381,14 @@ def sanitize_shell_arg(arg: str) -> str:
     return "'" + arg.replace("'", "'\"'\"'") + "'"
 
 
-def check_path_traversal_in_archive(archive_path: str, member_name: str) -> bool:
+def check_path_traversal_in_archive(_archive_path: str, member_name: str) -> bool:
     """
     Check if an archive member name attempts path traversal.
     
     Use this when extracting archives to prevent zip slip attacks.
     
     Args:
-        archive_path: Path to the archive being extracted
+        _archive_path: Path to the archive being extracted (reserved for future use)
         member_name: Name of the member/entry in the archive
         
     Returns:

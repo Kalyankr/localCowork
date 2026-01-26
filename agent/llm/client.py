@@ -122,7 +122,7 @@ def call_llm_chat(messages: List[Dict[str, str]], model: str = None) -> str:
         raise LLMError(f"LLM chat request failed: {e}")
 
 
-def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
+def call_llm_json(prompt: str) -> dict:
     """
     Calls Ollama and guarantees valid JSON output.
     Uses Ollama's native JSON mode for reliable structured output.
@@ -130,7 +130,6 @@ def call_llm_json(prompt: str, retry_prompt: str = None) -> dict:
     
     Args:
         prompt: The initial prompt to send
-        retry_prompt: Optional simpler prompt to use on retry
         
     Returns:
         Parsed JSON as a dictionary

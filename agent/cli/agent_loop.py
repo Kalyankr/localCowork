@@ -1,8 +1,10 @@
-"""Pure agentic loop - unified handler for questions AND tasks."""
+"""Pure agentic loop - ReAct-based autonomous agent."""
 
-import sys
+import asyncio
+from typing import Optional
 from rich.panel import Panel
 from rich.live import Live
+from rich.table import Table
 from rich import box
 
 from agent.cli.console import console, Icons, print_error
@@ -33,8 +35,6 @@ def _interactive_loop(model: str):
     console.clear()
     _show_welcome(model)
     
-    history = []
-    
     while True:
         try:
             user_input = _get_input()
@@ -51,11 +51,11 @@ def _interactive_loop(model: str):
                 continue
             
             if user_input.lower() == "/clear":
-                history.clear()
-                console.print("  [dim]✓ Cleared[/dim]\n")
+                console.clear()
+                _show_welcome(model)
                 continue
             
-            _process_input(user_input, model, history)
+            _process_input_agentic(user_input, model)
             
         except KeyboardInterrupt:
             console.print("\n  [dim]Ctrl+C. Type 'quit' to exit.[/dim]\n")
@@ -64,183 +64,147 @@ def _interactive_loop(model: str):
             break
 
 
-def _process_input(user_input: str, model: str, history: list):
-    """Process input - agent decides whether to use tools or just respond."""
-    from agent.orchestrator.planner import generate_plan
-    from agent.orchestrator.executor import Executor
+def _process_input_agentic(user_input: str, model: str):
+    """Process input using the ReAct agentic loop."""
+    from agent.orchestrator.react_agent import ReActAgent
     from agent.orchestrator.deps import get_tool_registry, get_sandbox
     from agent.llm.client import LLMError
     
     console.print()
     
+    tool_registry = get_tool_registry()
+    sandbox = get_sandbox()
+    
+    # State for live display
+    current_state = {
+        "iteration": 0,
+        "thought": "",
+        "action": "",
+        "status": "thinking",
+        "steps": []  # List of (iteration, action, status, thought_preview)
+    }
+    
+    def build_agent_display():
+        """Build live display showing agent's reasoning and actions."""
+        table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1), expand=True)
+        table.add_column("", width=60)
+        
+        # Current thinking
+        if current_state["status"] == "thinking":
+            table.add_row(f"  [yellow]🤔 Thinking...[/yellow]")
+        elif current_state["thought"]:
+            thought_preview = current_state["thought"][:80]
+            if len(current_state["thought"]) > 80:
+                thought_preview += "..."
+            table.add_row(f"  [cyan]💭 {thought_preview}[/cyan]")
+        
+        # Current action
+        if current_state["action"]:
+            table.add_row(f"  [green]⚡ {current_state['action']}[/green]")
+        
+        # Previous steps summary
+        if current_state["steps"]:
+            table.add_row("")
+            for step in current_state["steps"][-5:]:  # Last 5 steps
+                iter_num, action, status, _ = step
+                icon = "✓" if status == "success" else "✗" if status == "error" else "○"
+                color = "green" if status == "success" else "red" if status == "error" else "dim"
+                table.add_row(f"  [{color}]{icon} Step {iter_num}: {action}[/{color}]")
+        
+        return table
+    
+    def on_progress(iteration: int, status: str, thought: str, action: Optional[str]):
+        """Callback for agent progress updates."""
+        current_state["iteration"] = iteration
+        current_state["status"] = status
+        current_state["thought"] = thought
+        current_state["action"] = action or ""
+        
+        if status in ("success", "error") and action:
+            current_state["steps"].append((iteration, action, status, thought[:50]))
+    
     try:
-        # Let the planner decide what to do
-        with console.status("  [cyan]Thinking...[/cyan]", spinner="dots"):
-            plan = generate_plan(user_input)
+        agent = ReActAgent(
+            tool_registry=tool_registry,
+            sandbox=sandbox,
+            on_progress=on_progress,
+            max_iterations=15
+        )
         
-        # Check if it's a pure chat response (no tools needed)
-        is_chat = len(plan.steps) == 1 and plan.steps[0].action == "chat_op"
+        console.print(f"  [bold cyan]🤖 Working on your request...[/bold cyan]")
+        console.print()
         
-        if is_chat:
-            # Just show the chat response
-            _show_response(plan.steps[0].args.get("response", ""), model)
-        else:
-            # Show plan and ask for approval
-            if _show_plan_and_approve(plan):
-                _execute_plan(plan, user_input, model)
-            else:
-                console.print("  [dim]Cancelled.[/dim]")
+        # Run agent with live display
+        with Live(build_agent_display(), console=console, refresh_per_second=4) as live:
+            async def run_with_display():
+                async def updater():
+                    while True:
+                        live.update(build_agent_display())
+                        await asyncio.sleep(0.2)
+                
+                update_task = asyncio.create_task(updater())
+                try:
+                    return await agent.run(user_input)
+                finally:
+                    update_task.cancel()
+                    try:
+                        await update_task
+                    except asyncio.CancelledError:
+                        pass
             
+            state = asyncio.run(run_with_display())
+            live.update(build_agent_display())
+        
+        console.print()
+        
+        # Show final result
+        if state.status == "completed":
+            _show_agent_result(state, model)
+        elif state.status == "failed":
+            console.print(f"  [red]✗ Failed: {state.error}[/red]")
+        elif state.status == "max_iterations":
+            console.print(f"  [yellow]⚠ Reached max iterations without completing[/yellow]")
+            if state.steps:
+                # Show what was accomplished
+                _show_agent_result(state, model)
+        
     except LLMError as e:
         print_error("AI Error", str(e))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print_error("Error", str(e))
     
     console.print()
 
 
-def _show_plan_and_approve(plan) -> bool:
-    """Show the plan and ask for user approval."""
-    console.print(f"  [bold cyan]📋 Plan[/bold cyan] ({len(plan.steps)} steps)")
-    console.print()
+def _show_agent_result(state, model: str):
+    """Display the agent's final result with context."""
+    from agent.llm.client import call_llm
     
-    for i, step in enumerate(plan.steps, 1):
-        action = step.action
-        desc = step.description or ""
-        
-        # Show action with icon
-        action_icons = {
-            "shell_op": "💻",
-            "read_file": "📄",
-            "write_file": "✏️",
-            "list_dir": "📁",
-            "fetch_url": "🌐",
-            "run_python": "🐍",
-            "search_files": "🔍",
-        }
-        icon = action_icons.get(action, "•")
-        
-        console.print(f"  {i}. {icon} [cyan]{action}[/cyan]")
-        if desc:
-            console.print(f"     [dim]{desc[:60]}{'...' if len(desc) > 60 else ''}[/dim]")
-        
-        # Show key args
-        if step.args:
-            for key, val in list(step.args.items())[:2]:
-                if val and key not in ("response",):
-                    val_str = str(val)[:40]
-                    console.print(f"     [dim]{key}: {val_str}{'...' if len(str(val)) > 40 else ''}[/dim]")
-    
-    console.print()
-    
-    # Ask for approval
-    try:
-        response = console.input("  [yellow]Execute?[/yellow] [dim](y/n)[/dim] ").strip().lower()
-        return response in ("y", "yes", "")
-    except (KeyboardInterrupt, EOFError):
-        return False
-
-
-def _execute_plan(plan, request: str, model: str):
-    """Execute a plan and show results with live progress."""
-    import asyncio
-    from rich.live import Live
-    from rich.table import Table
-    from rich import box
-    from agent.orchestrator.executor import Executor
-    from agent.orchestrator.planner import summarize_results
-    from agent.orchestrator.deps import get_tool_registry, get_sandbox
-    
-    tool_registry = get_tool_registry()
-    sandbox = get_sandbox()
-    
-    console.print()
-    console.print(f"  [bold cyan]⚡ Executing[/bold cyan]")
-    console.print()
-    
-    step_status = {}
-    step_errors = {}
-    
-    def build_progress_table():
-        """Build a live-updating progress table."""
-        table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
-        table.add_column("", width=3)
-        table.add_column("Step", width=50)
-        table.add_column("Status", width=10)
-        
-        for step in plan.steps:
-            status = step_status.get(step.id, "pending")
-            desc = (step.description or step.action)[:45]
-            
-            icons = {
-                "pending": ("○", "dim"),
-                "starting": ("●", "yellow"),
-                "success": ("✓", "green"),
-                "error": ("✗", "red"),
-                "skipped": ("◌", "dim"),
-            }
-            icon, color = icons.get(status, ("●", "yellow"))
-            
-            table.add_row(
-                f"  [{color}]{icon}[/{color}]",
-                f"[{color}]{desc}[/{color}]",
-                f"[{color}]{status}[/{color}]"
-            )
-        
-        return table
-    
-    def on_progress(step_id: str, status: str, current: int, total: int):
-        step_status[step_id] = status
-    
-    executor = Executor(
-        plan=plan,
-        tool_registry=tool_registry,
-        sandbox=sandbox,
-        on_progress=on_progress,
-        parallel=True,
-    )
-    
-    # Run with live progress display
-    with Live(build_progress_table(), console=console, refresh_per_second=4) as live:
-        async def run_with_updates():
-            async def updater():
-                while len([s for s in step_status.values() if s in ("success", "error", "skipped")]) < len(plan.steps):
-                    live.update(build_progress_table())
-                    await asyncio.sleep(0.2)
-            
-            update_task = asyncio.create_task(updater())
-            try:
-                return await executor.run()
-            finally:
-                update_task.cancel()
-                try:
-                    await update_task
-                except asyncio.CancelledError:
-                    pass
-        
-        results = asyncio.run(run_with_updates())
-        live.update(build_progress_table())
-    
-    console.print()
-    
-    # Show results summary
-    success_count = sum(1 for r in results.values() if r.status == "success")
-    failed_count = sum(1 for r in results.values() if r.status in ("error", "skipped"))
-    
-    if failed_count == 0:
-        console.print(f"  [green]✓[/green] All {success_count} steps completed")
+    # Build summary from agent's work
+    if state.final_answer:
+        summary = state.final_answer
     else:
-        console.print(f"  [yellow]⚠[/yellow] {success_count} succeeded, {failed_count} failed")
-        # Show errors
-        for step_id, result in results.items():
-            if result.error:
-                console.print(f"    [red]✗[/red] {step_id}: [dim]{result.error[:60]}[/dim]")
-    
-    console.print()
-    
-    # Generate and show summary
-    with console.status("  [cyan]Summarizing...[/cyan]", spinner="dots"):
-        summary = summarize_results(request, results)
+        # Generate summary from context
+        context_summary = "\n".join([
+            f"- {k}: {str(v)[:100]}..." if len(str(v)) > 100 else f"- {k}: {v}"
+            for k, v in list(state.context.items())[:10]
+        ])
+        
+        prompt = f"""Summarize what was accomplished for this goal in 1-3 friendly sentences.
+
+Goal: {state.goal}
+
+Data gathered:
+{context_summary}
+
+Steps taken: {len(state.steps)}
+Final status: {state.status}
+
+Be concise and conversational. Focus on what was achieved."""
+        
+        summary = call_llm(prompt)
     
     _show_response(summary, model)
 
@@ -258,11 +222,11 @@ def _show_welcome(model: str):
     console.print()
     console.print(f"  [bold cyan]╭{'─' * 40}╮[/bold cyan]")
     console.print(f"  [bold cyan]│[/bold cyan] {Icons.ROBOT} [bold]LocalCowork[/bold]                       [bold cyan]│[/bold cyan]")
-    console.print(f"  [bold cyan]│[/bold cyan] [dim]Your local AI agent[/dim]                  [bold cyan]│[/bold cyan]")
+    console.print(f"  [bold cyan]│[/bold cyan] [dim]Agentic AI assistant[/dim]                [bold cyan]│[/bold cyan]")
     console.print(f"  [bold cyan]╰{'─' * 40}╯[/bold cyan]")
     console.print()
     console.print(f"  [dim]Model:[/dim] [cyan]{model}[/cyan]")
-    console.print(f"  [dim]Just type. I'll figure out what to do.[/dim]")
+    console.print(f"  [dim]I'll think step-by-step and adapt as I work.[/dim]")
     console.print()
 
 
@@ -293,12 +257,14 @@ def _get_input() -> str:
 def _show_help():
     """Show minimal help."""
     console.print()
-    console.print("  [bold]Just type what you need:[/bold]")
+    console.print("  [bold]Just describe what you want:[/bold]")
     console.print()
-    console.print("    [cyan]list files in ~/Downloads[/cyan]")
-    console.print("    [cyan]what is machine learning?[/cyan]")
-    console.print("    [cyan]summarize report.pdf[/cyan]")
-    console.print("    [cyan]download example.com/file.txt[/cyan]")
+    console.print("    [cyan]organize my downloads by file type[/cyan]")
+    console.print("    [cyan]find all PDFs and summarize them[/cyan]")
+    console.print("    [cyan]search the web for Python tutorials[/cyan]")
+    console.print("    [cyan]create a report from this data[/cyan]")
+    console.print()
+    console.print("  [dim]I'll figure out the steps and adapt as I work.[/dim]")
     console.print()
     console.print("  [dim]/clear[/dim] - reset  [dim]/quit[/dim] - exit")
     console.print()

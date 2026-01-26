@@ -3,7 +3,7 @@
 import requests
 import time
 import logging
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus
 from typing import Optional
 from pathlib import Path
 

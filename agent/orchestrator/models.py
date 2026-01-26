@@ -27,6 +27,18 @@ class Step(BaseModel):
 
 class Plan(BaseModel):
     steps: List[Step]
+    
+    @property
+    def is_chat(self) -> bool:
+        """Check if this plan is just a chat response (no tools needed)."""
+        return len(self.steps) == 1 and self.steps[0].action == "chat_op"
+    
+    @property
+    def chat_response(self) -> str:
+        """Get the chat response if this is a chat plan."""
+        if self.is_chat:
+            return self.steps[0].args.get("response", "")
+        return ""
 
 
 class ConversationMessage(BaseModel):

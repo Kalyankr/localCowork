@@ -1,8 +1,7 @@
 """LocalCowork API Server with WebSocket support, approval flow, and task history."""
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from agent.orchestrator.models import (
     TaskRequest, TaskResponse, TaskApproval, TaskSummary, TaskDetail,
     ConversationMessage, Plan, StepResult, TaskState,
@@ -303,6 +302,93 @@ async def cancel_task(task_id: str):
     return {"status": "cancelled", "task_id": task_id}
 
 
+# ============================================================================
+# Agentic Endpoint (ReAct-based)
+# ============================================================================
+
+@app.post("/agent/run")
+async def run_agent(request: TaskRequest):
+    """
+    Run the ReAct agent for a truly agentic experience.
+    
+    Unlike the plan-then-execute approach, this endpoint:
+    - Thinks step-by-step
+    - Adapts based on results
+    - Handles conversations naturally
+    - Streams progress via WebSocket
+    """
+    from agent.orchestrator.react_agent import ReActAgent
+    
+    session_id = request.session_id or str(uuid.uuid4())
+    
+    # Add to history
+    add_to_history(session_id, "user", request.request)
+    
+    # Create task for tracking
+    task = task_manager.create_task(request.request, session_id)
+    task_manager.update_state(task.id, TMState.EXECUTING)
+    
+    async def progress_callback(iteration: int, status: str, thought: str, action: str):
+        """Send progress updates via WebSocket."""
+        await ws_manager.broadcast_to_task(task.id, {
+            "type": "agent_progress",
+            "task_id": task.id,
+            "iteration": iteration,
+            "status": status,
+            "thought": thought,
+            "action": action,
+        })
+    
+    try:
+        agent = ReActAgent(
+            tool_registry=tool_registry,
+            sandbox=sandbox,
+            on_progress=progress_callback,
+            max_iterations=15
+        )
+        
+        # Run the agent
+        state = await agent.run(request.request)
+        
+        # Update task manager
+        if state.status == "completed":
+            task_manager.update_state(task.id, TMState.COMPLETED)
+            task_manager.set_summary(task.id, state.final_answer or "Task completed")
+        else:
+            task_manager.update_state(task.id, TMState.FAILED, state.error)
+        
+        # Add response to history
+        if state.final_answer:
+            add_to_history(session_id, "assistant", state.final_answer)
+        
+        # Broadcast completion
+        await ws_manager.broadcast_to_task(task.id, {
+            "type": "agent_complete",
+            "task_id": task.id,
+            "status": state.status,
+            "response": state.final_answer,
+            "steps": len(state.steps),
+            "context": {k: str(v)[:200] for k, v in state.context.items()},
+        })
+        
+        return {
+            "task_id": task.id,
+            "session_id": session_id,
+            "status": state.status,
+            "response": state.final_answer,
+            "steps_taken": len(state.steps),
+            "context": {k: str(v)[:500] for k, v in state.context.items()},
+        }
+    
+    except LLMError as e:
+        task_manager.update_state(task.id, TMState.FAILED, str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.exception("Agent execution failed")
+        task_manager.update_state(task.id, TMState.FAILED, str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/tasks")
 async def list_tasks(
     session_id: Optional[str] = None,
@@ -401,11 +487,8 @@ async def stream_task(task: TaskRequest, parallel: bool = True):
             results_dict = {k: v.model_dump() for k, v in results.items()}
             yield f"data: {json.dumps({'type': 'result', 'results': results_dict})}\n\n"
             
-            is_chat = len(plan.steps) == 1 and plan.steps[0].action == "chat_op"
-            
-            if is_chat:
-                chat_result = list(results.values())[0]
-                summary = str(chat_result.output) if chat_result.output else "Hello!"
+            if plan.is_chat:
+                summary = plan.chat_response or "Hello!"
             else:
                 summary = summarize_results(task.request, results)
             
@@ -585,11 +668,9 @@ async def _execute_task(task_id: str, plan: Plan, session_id: Optional[str]):
         
         # Generate summary
         task = task_manager.get_task(task_id)
-        is_chat = len(plan.steps) == 1 and plan.steps[0].action == "chat_op"
         
-        if is_chat:
-            chat_result = list(results.values())[0]
-            summary = str(chat_result.output) if chat_result.output else "Hello!"
+        if plan.is_chat:
+            summary = plan.chat_response or "Hello!"
         else:
             summary = summarize_results(task.request, results)
         
