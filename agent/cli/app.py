@@ -12,11 +12,11 @@ APP_DESCRIPTION = "Privacy-first AI assistant for local tasks"
 
 # Main Typer app
 app = typer.Typer(
-    name="cowork",
+    name="localcowork",
     help=f"{Icons.ROBOT} {APP_DESCRIPTION}",
     add_completion=False,
     pretty_exceptions_show_locals=False,
-    no_args_is_help=True,
+    no_args_is_help=False,  # Allow no args to start interactive mode
 )
 
 

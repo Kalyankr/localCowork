@@ -87,12 +87,13 @@ def call_llm(prompt: str, force_json: bool = False) -> str:
         raise LLMError(f"LLM request failed: {e}")
 
 
-def call_llm_chat(messages: List[Dict[str, str]]) -> str:
+def call_llm_chat(messages: List[Dict[str, str]], model: str = None) -> str:
     """
     Calls Ollama with chat messages format.
     
     Args:
         messages: List of message dicts with 'role' and 'content' keys
+        model: Optional model override
         
     Returns:
         The assistant's response content
@@ -102,10 +103,11 @@ def call_llm_chat(messages: List[Dict[str, str]]) -> str:
     """
     try:
         client = _get_client()
-        logger.debug(f"Calling LLM chat with model={MODEL}, {len(messages)} messages")
+        active_model = model or MODEL
+        logger.debug(f"Calling LLM chat with model={active_model}, {len(messages)} messages")
         
         response = client.chat(
-            model=MODEL,
+            model=active_model,
             messages=messages,
             options={"num_predict": settings.max_tokens},
         )
@@ -319,3 +321,60 @@ def check_model_exists(model_name: str = None) -> bool:
         )
     except Exception:
         return False
+
+
+def check_ollama_health() -> tuple[bool, Optional[str]]:
+    """Check if Ollama is running and accessible.
+    
+    Returns:
+        Tuple of (is_healthy, error_message)
+    """
+    try:
+        client = _get_client()
+        # Try to list models as a health check
+        client.list()
+        return True, None
+    except RequestError as e:
+        return False, f"Connection refused. Is Ollama running? ({e})"
+    except ResponseError as e:
+        return False, f"Ollama error: {e}"
+    except Exception as e:
+        return False, f"Unknown error: {e}"
+
+
+def call_llm_chat_stream(messages: List[Dict[str, str]], model: str = None):
+    """
+    Stream chat responses from Ollama.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        model: Optional model override
+        
+    Yields:
+        String chunks of the response
+        
+    Raises:
+        LLMError: If the LLM request fails.
+    """
+    try:
+        client = _get_client()
+        active_model = model or MODEL
+        logger.debug(f"Streaming LLM chat with model={active_model}, {len(messages)} messages")
+        
+        stream = client.chat(
+            model=active_model,
+            messages=messages,
+            options={"num_predict": settings.max_tokens},
+            stream=True,
+        )
+        
+        for chunk in stream:
+            if chunk.message and chunk.message.content:
+                yield chunk.message.content
+                
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
+        raise LLMError(f"LLM stream request failed: {e}")
