@@ -1,20 +1,15 @@
-"""LocalCowork CLI - Claude CLI-style interface.
+"""LocalCowork CLI - Pure agentic interface.
 
-Usage:
-    localcowork                    # Interactive chat mode
-    localcowork "question"         # Quick question
-    localcowork run "task"         # Execute a task with tools
-    localcowork init               # Initialize workspace
+Two ways to use:
+- `localcowork` - Terminal agent (interactive)
+- `localcowork serve` - Web UI
 """
 
 import sys
 import logging
 import typer
 
-from agent.cli.app import app, APP_NAME, APP_VERSION, version_callback
-from agent.cli.console import console
-from agent.cli.commands import run, plan, serve, tasks, status, approve, reject, ask, models, config, doctor, init
-from agent.cli.commands.ask import _check_connection, _single_question, _interactive_mode
+from agent.cli.console import console, Icons, print_error
 
 # Configure logging
 logging.basicConfig(
@@ -22,66 +17,63 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
+app = typer.Typer(
+    name="localcowork",
+    help=f"{Icons.ROBOT} Your local AI agent",
+    add_completion=False,
+    pretty_exceptions_show_locals=False,
+    no_args_is_help=False,
+)
+
+
+def version_callback(value: bool):
+    if value:
+        console.print(f"[bold cyan]LocalCowork[/bold cyan] v0.3.0")
+        raise typer.Exit()
+
 
 @app.callback(invoke_without_command=True)
-def main_callback(
+def main(
     ctx: typer.Context,
-    prompt: str = typer.Argument(None, help="Question to ask (starts interactive mode if omitted)"),
-    version: bool = typer.Option(
-        None, "--version", "-V",
-        callback=version_callback,
-        is_eager=True,
-        help="Show version and exit"
-    ),
+    version: bool = typer.Option(None, "--version", "-V", callback=version_callback, is_eager=True),
     model: str = typer.Option(None, "--model", "-m", help="Model to use"),
-    interactive: bool = typer.Option(False, "--interactive", "-i", help="Force interactive mode"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
 ):
-    """🤖 LocalCowork - Your local AI assistant.
+    """🤖 LocalCowork - Your local AI agent.
     
-    Just type a question to chat, or use commands for more control.
+    Just run `localcowork` and start typing.
+    The agent handles questions AND tasks automatically.
     
     Examples:
-        localcowork "What is Python?"      # Quick question
-        localcowork                         # Interactive chat
-        localcowork run "summarize *.pdf"   # Execute task with tools
-        localcowork init                    # Set up workspace
+        localcowork                   # Start agent
+        localcowork serve             # Start web UI
     """
-    # If a subcommand is invoked, skip default behavior
+    # Skip if subcommand (like serve)
     if ctx.invoked_subcommand is not None:
         return
     
-    from agent.config import settings
-    active_model = model or settings.ollama_model
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("agent").setLevel(logging.DEBUG)
     
-    # Check connection first
-    if not _check_connection():
-        raise typer.Exit(code=1)
+    from agent.cli.agent_loop import run_agent
+    run_agent(model)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", "-h"),
+    port: int = typer.Option(8000, "--port", "-p"),
+):
+    """Start the web UI."""
+    import webbrowser
+    import uvicorn
     
-    # Direct question or interactive mode
-    if prompt and not interactive:
-        _single_question(prompt, active_model, stream=True)
-    else:
-        _interactive_mode(active_model, stream=True)
+    url = f"http://{host}:{port}"
+    console.print(f"\n  {Icons.ROBOT} [bold]LocalCowork[/bold] → {url}\n")
+    webbrowser.open(url)
+    uvicorn.run("agent.orchestrator.server:app", host=host, port=port, reload=True, log_level="warning")
 
 
-# Register commands
-app.command()(run)
-app.command()(plan)
-app.command()(serve)
-app.command()(tasks)
-app.command()(status)
-app.command()(approve)
-app.command()(reject)
-app.command(name="chat")(ask)  # Alias for explicit chat
-app.command()(models)
-app.command()(config)
-app.command()(doctor)
-app.command()(init)
-
-
-def main():
-    """Entry point for the CLI."""
+def cli():
     app()
-
-
-__all__ = ["app", "main", "console"]

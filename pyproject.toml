@@ -1,7 +1,7 @@
 [project]
 name = "localcowork"
-version = "0.2.0"
-description = "A privacy-first AI assistant that runs entirely on your machine"
+version = "0.3.0"
+description = "A privacy-first AI agent that runs entirely on your machine"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -26,4 +26,4 @@ dev = [
 ]
 
 [project.scripts]
-localcowork = "agent.cli:main"
+localcowork = "agent.cli:cli"
