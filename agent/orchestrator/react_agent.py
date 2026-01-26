@@ -442,25 +442,42 @@ class ReActAgent:
         return f"[{obs.source}] {content}"
     
     def _format_tools(self) -> str:
-        """Format available tools for the prompt - emphasizing code-first."""
-        return """PRIMARY TOOLS (use these for most tasks):
-- python: Execute Python code with FULL access to files, network, and system
-  - Can read/write ANY file: open(), Path(), shutil
-  - Can make web requests: requests.get(), urllib
-  - Can run shell commands: subprocess.run()
-  - Has access to all standard libraries
-  Example: {"tool": "python", "args": {"code": "import os\\nfiles = os.listdir('~/Downloads')\\nprint(files)"}}
+        """Format available tools for the prompt - code-first with helpers."""
+        # Get registered helper tools
+        helper_tools = self.tool_registry.list_tools()
+        
+        tools_text = """## PRIMARY TOOLS (use these for most tasks)
 
-- shell: Run any shell command directly
+**python** - Execute Python code with FULL system access
+  - File operations: os, shutil, pathlib
+  - Web requests: requests, urllib  
+  - Data: json, csv, pandas (if installed)
+  - Anything Python can do!
+  Example: {"tool": "python", "args": {"code": "import os\\nprint(os.listdir('.'))"}}
+
+**shell** - Run any shell command
   Example: {"tool": "shell", "args": {"command": "ls -la ~/Downloads"}}
 
-HELPER TOOLS (structured operations):
-- file_op: Structured file operations (list, read, write, move, copy, delete)
-- web_op: Web operations (fetch URL, search, download)
-- pdf_op: PDF operations (extract text, merge, split)
-- data_op: Data conversion (csv/excel/json)
-
-PREFER python for complex tasks - you can do ANYTHING with it."""
+## HELPER TOOLS (structured operations - use if python is complex)
+"""
+        # Add registered tools
+        descriptions = {
+            "file_op": "list/read/write/move/copy/delete files",
+            "web_op": "fetch URL, search web, download",
+            "pdf_op": "extract PDF text, merge, split",
+            "data_op": "CSV/Excel/JSON conversion",
+            "json_op": "read/write/query JSON",
+            "archive_op": "zip/unzip/tar operations",
+            "text_op": "summarize text (uses AI)",
+            "shell_op": "run shell commands (structured)",
+        }
+        
+        for tool in helper_tools:
+            if tool in descriptions:
+                tools_text += f"- {tool}: {descriptions[tool]}\n"
+        
+        tools_text += "\nPrefer python/shell for flexibility. Use helpers for complex operations."
+        return tools_text
     
     def _format_result(self, result: StepResult) -> str:
         """Format a step result for observation."""
