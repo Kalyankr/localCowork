@@ -55,26 +55,26 @@ class Sandbox:
             # Write the code to the sandbox
             script_path.write_text(code)
 
-            # Docker command with resource limits
+            # Docker command with enhanced security
             cmd = [
                 "docker",
                 "run",
                 "--rm",
-                "--network",
-                "none",
-                "--memory",
-                settings.sandbox_memory_limit,
-                "--cpus",
-                settings.sandbox_cpu_limit,
-                "--pids-limit",
-                str(settings.sandbox_pids_limit),
-                "-v",
-                f"{tmpdir}:/app:ro",
-                "--workdir",
-                "/app",
+                "--network", "none",
+                "--memory", settings.sandbox_memory_limit,
+                "--cpus", settings.sandbox_cpu_limit,
+                "--pids-limit", str(settings.sandbox_pids_limit),
+                "--user", "1000:1000",
+                "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges",
+                "--read-only",
+                "--tmpfs", "/tmp:size=10m,exec,nosuid,nodev",
+                # Optionally add a strict seccomp profile if available
+                # "--security-opt", "seccomp=unconfined",  # Replace with a custom profile for stricter isolation
+                "-v", f"{tmpdir}:/app:ro",
+                "--workdir", "/app",
                 settings.docker_image,
-                "python",
-                "script.py",
+                "python", "script.py",
             ]
 
             try:
