@@ -26,12 +26,14 @@ def _validate_path(path: Path, must_exist: bool = False, must_be_dir: bool = Fal
         raise FileOperationError(f"Path is not a directory: {path}")
 
 
-def list_files(path: str | dict, raise_on_missing: bool = False, raise_on_missing: bool = False) -> list[dict]:
+def list_files(path: str | dict, raise_on_missing: bool = False, recursive: bool = False, pattern: str | None = None) -> list[dict]:
     """List files in a directory with metadata.
     
     Args:
         path: Directory path to list
         raise_on_missing: If True, raise error for missing path; else return empty list
+        recursive: If True, list files recursively
+        pattern: Optional glob pattern to filter files (e.g., '*.txt')
         
     Returns:
         List of file info dicts with path, name, size, mtime, is_dir
@@ -54,7 +56,16 @@ def list_files(path: str | dict, raise_on_missing: bool = False, raise_on_missin
         return []
     
     results = []
-    for x in p.iterdir():
+    
+    # Choose iteration method based on recursive flag
+    if recursive:
+        iterator = p.rglob(pattern or "*")
+    elif pattern:
+        iterator = p.glob(pattern)
+    else:
+        iterator = p.iterdir()
+    
+    for x in iterator:
         try:
             stat = x.stat()
             results.append({
@@ -62,7 +73,8 @@ def list_files(path: str | dict, raise_on_missing: bool = False, raise_on_missin
                 "name": x.name,
                 "mtime": stat.st_mtime,
                 "size": stat.st_size,
-                "is_dir": x.is_dir()
+                "is_dir": x.is_dir(),
+                "extension": x.suffix.lower() if x.is_file() else None,
             })
         except PermissionError:
             logger.debug(f"Permission denied: {x}")
@@ -194,11 +206,238 @@ def write_text(path: str | dict, content: str) -> str:
     return f"Wrote text to {p}"
 
 
-def dispatch(op: str, **kwargs) -> str | list[dict]:
+def copy_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
+    """Copy file(s) to destination.
+    
+    Args:
+        src: Source file/path or list of sources
+        dest: Destination path
+        
+    Returns:
+        Success message describing the operation
+        
+    Raises:
+        FileOperationError: If source doesn't exist
+    """
+    if not src:
+        return "No files found to copy; skipping."
+    
+    dest_path = _to_path(dest)
+    
+    if isinstance(src, list):
+        # Multiple files - dest must be a directory
+        if not dest_path.exists():
+            dest_path.mkdir(parents=True, exist_ok=True)
+        
+        copied = []
+        errors = []
+        for s in src:
+            s_path = _to_path(s)
+            if not s_path.exists():
+                errors.append(f"Source not found: {s_path}")
+                continue
+            try:
+                if s_path.is_dir():
+                    shutil.copytree(str(s_path), str(dest_path / s_path.name))
+                else:
+                    shutil.copy2(str(s_path), str(dest_path))
+                copied.append(str(s_path))
+            except Exception as e:
+                errors.append(f"Failed to copy {s_path}: {e}")
+        
+        msg = f"Copied {len(copied)} files to {dest_path}"
+        if errors:
+            msg += f" ({len(errors)} errors: {'; '.join(errors[:3])})"
+        return msg
+    else:
+        src_path = _to_path(src)
+        if not src_path.exists():
+            raise FileOperationError(f"Source not found: {src_path}")
+        
+        if src_path.is_dir():
+            shutil.copytree(str(src_path), str(dest_path))
+        else:
+            # Create parent dirs if needed
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src_path), str(dest_path))
+        return f"Copied {src_path} → {dest_path}"
+
+
+def delete_file(path: str | dict, recursive: bool = False) -> str:
+    """Delete a file or directory.
+    
+    Args:
+        path: Path to delete
+        recursive: If True, delete directories recursively
+        
+    Returns:
+        Success message
+        
+    Raises:
+        FileOperationError: If path doesn't exist
+    """
+    p = _to_path(path)
+    if not p.exists():
+        raise FileOperationError(f"Path not found: {p}")
+    
+    if p.is_dir():
+        if recursive:
+            shutil.rmtree(str(p))
+            return f"Deleted directory (recursive): {p}"
+        else:
+            try:
+                p.rmdir()
+                return f"Deleted empty directory: {p}"
+            except OSError:
+                raise FileOperationError(f"Directory not empty (use recursive=True): {p}")
+    else:
+        p.unlink()
+        return f"Deleted file: {p}"
+
+
+def get_file_info(path: str | dict) -> dict:
+    """Get detailed information about a file or directory.
+    
+    Args:
+        path: Path to inspect
+        
+    Returns:
+        Dict with file metadata
+        
+    Raises:
+        FileOperationError: If path doesn't exist
+    """
+    p = _to_path(path)
+    if not p.exists():
+        raise FileOperationError(f"Path not found: {p}")
+    
+    stat = p.stat()
+    return {
+        "path": str(p),
+        "name": p.name,
+        "extension": p.suffix.lower() if p.is_file() else None,
+        "is_file": p.is_file(),
+        "is_dir": p.is_dir(),
+        "is_symlink": p.is_symlink(),
+        "size": stat.st_size,
+        "size_human": _format_size(stat.st_size),
+        "mtime": stat.st_mtime,
+        "atime": stat.st_atime,
+        "ctime": stat.st_ctime,
+        "mode": oct(stat.st_mode),
+    }
+
+
+def get_dir_size(path: str | dict) -> dict:
+    """Calculate total size of a directory.
+    
+    Args:
+        path: Directory path
+        
+    Returns:
+        Dict with size information
+    """
+    p = _to_path(path)
+    if not p.exists():
+        raise FileOperationError(f"Path not found: {p}")
+    if not p.is_dir():
+        raise FileOperationError(f"Not a directory: {p}")
+    
+    total_size = 0
+    file_count = 0
+    dir_count = 0
+    
+    for item in p.rglob("*"):
+        try:
+            if item.is_file():
+                total_size += item.stat().st_size
+                file_count += 1
+            elif item.is_dir():
+                dir_count += 1
+        except (PermissionError, OSError):
+            pass
+    
+    return {
+        "path": str(p),
+        "total_size": total_size,
+        "total_size_human": _format_size(total_size),
+        "file_count": file_count,
+        "dir_count": dir_count,
+    }
+
+
+def find_files(path: str | dict, pattern: str, recursive: bool = True) -> list[dict]:
+    """Find files matching a pattern.
+    
+    Args:
+        path: Directory to search in
+        pattern: Glob pattern (e.g., '*.py', '**/*.txt')
+        recursive: If True, search recursively
+        
+    Returns:
+        List of matching file info dicts
+    """
+    p = _to_path(path)
+    if not p.exists():
+        raise FileOperationError(f"Path not found: {p}")
+    
+    results = []
+    iterator = p.rglob(pattern) if recursive else p.glob(pattern)
+    
+    for x in iterator:
+        try:
+            stat = x.stat()
+            results.append({
+                "path": str(x),
+                "name": x.name,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "is_dir": x.is_dir(),
+            })
+        except (PermissionError, OSError):
+            pass
+    
+    return results
+
+
+def _format_size(size: int) -> str:
+    """Format bytes to human readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} PB"
+
+
+def dispatch(op: str, **kwargs) -> str | list[dict] | dict:
+    """Dispatch file operations.
+    
+    Supported operations:
+        - list: List files in directory
+        - move: Move file(s) to destination
+        - copy: Copy file(s) to destination
+        - delete: Delete file or directory
+        - mkdir: Create directory
+        - rename: Rename file/directory
+        - read: Read text file content
+        - write: Write text to file
+        - info: Get file/directory info
+        - size: Get directory size
+        - find: Find files by pattern
+    """
     if op == "list":
-        return list_files(kwargs["path"])
+        return list_files(
+            kwargs["path"],
+            kwargs.get("raise_on_missing", False),
+            kwargs.get("recursive", False),
+            kwargs.get("pattern"),
+        )
     if op == "move":
         return move_file(kwargs["src"], kwargs["dest"])
+    if op == "copy":
+        return copy_file(kwargs["src"], kwargs["dest"])
+    if op == "delete":
+        return delete_file(kwargs["path"], kwargs.get("recursive", False))
     if op == "mkdir":
         return create_dir(kwargs["path"])
     if op == "rename":
@@ -207,4 +446,10 @@ def dispatch(op: str, **kwargs) -> str | list[dict]:
         return read_text(kwargs["path"])
     if op == "write":
         return write_text(kwargs["path"], kwargs["content"])
+    if op == "info":
+        return get_file_info(kwargs["path"])
+    if op == "size":
+        return get_dir_size(kwargs["path"])
+    if op == "find":
+        return find_files(kwargs["path"], kwargs["pattern"], kwargs.get("recursive", True))
     raise ValueError(f"Unsupported file op: {op}")

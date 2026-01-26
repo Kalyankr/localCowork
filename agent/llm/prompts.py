@@ -6,7 +6,7 @@ Version tracking helps with reproducibility and debugging.
 
 # Prompt versions for tracking changes
 PROMPT_VERSIONS = {
-    "planner": "1.0.0",
+    "planner": "1.1.0",  # Updated with new tool operations
     "summarizer": "1.0.0",
     "code_fix": "1.0.0",
 }
@@ -32,20 +32,36 @@ For CONVERSATION messages, use chat_op with a single step.
 | Action | Args | Returns |
 |--------|------|---------|
 | chat_op | {"op": "respond", "message": str} | Conversational response (USE FOR GREETINGS/QUESTIONS ABOUT YOU) |
-| file_op | {"op": "list", "path": str} | List of {path, name, size, mtime, is_dir} |
+| file_op | {"op": "list", "path": str, "recursive": bool?, "pattern": str?} | List of {path, name, size, mtime, is_dir, extension} |
 | file_op | {"op": "move", "src": str/list, "dest": str} | Success message |
+| file_op | {"op": "copy", "src": str/list, "dest": str} | Success message |
+| file_op | {"op": "delete", "path": str, "recursive": bool?} | Success message |
 | file_op | {"op": "mkdir", "path": str} | Success message |
 | file_op | {"op": "read", "path": str} | File content as string |
 | file_op | {"op": "write", "path": str, "content": str} | Success message |
+| file_op | {"op": "info", "path": str} | Detailed file/dir info |
+| file_op | {"op": "size", "path": str} | Directory size stats |
+| file_op | {"op": "find", "path": str, "pattern": str} | List of matching files |
 | python | {"code": str} | Variables created become available to later steps |
 | pdf_op | {"op": "extract", "files": list} | Metadata dict per file |
+| pdf_op | {"op": "text", "path": str, "max_pages": int?} | Extracted text content |
+| pdf_op | {"op": "pages", "path": str} | Page count |
+| pdf_op | {"op": "merge", "files": list, "output": str} | Merged PDF |
+| pdf_op | {"op": "split", "path": str, "output_dir": str} | Split PDF files |
 | data_op | {"op": "csv_to_excel", "csv_path": str, "excel_path": str} | Success message |
+| data_op | {"op": "excel_to_csv", "excel_path": str, "csv_path": str} | Success message |
+| data_op | {"op": "json_to_csv", "json_path": str, "csv_path": str} | Success message |
+| data_op | {"op": "csv_to_json", "csv_path": str, "json_path": str} | Success message |
+| data_op | {"op": "preview", "path": str, "rows": int?} | Data preview with schema |
+| data_op | {"op": "stats", "path": str} | Statistical summary |
+| data_op | {"op": "filter", "path": str, "output": str, "column": str, "operator": str, "value": any} | Filtered data |
 | text_op | {"op": "summarize", "text": str} | Summary string |
 | text_op | {"op": "extract", "text": str, "what": str} | Extracted info |
 | markdown_op | {"op": "create", "content": str, "output": str} | Success message |
 | web_op | {"op": "fetch", "url": str} | {content, status_code, content_type} |
-| web_op | {"op": "search", "query": str, "num_results": int} | List of {title, url, snippet} |
-| web_op | {"op": "download", "url": str, "dest": str} | Success message |
+| web_op | {"op": "search", "query": str, "num_results": int?} | List of {title, url, snippet} |
+| web_op | {"op": "download", "url": str, "dest": str} | Download result dict |
+| web_op | {"op": "check", "url": str} | URL accessibility info |
 | shell_op | {"op": "run", "cmd": str, "cwd": str?} | {stdout, stderr, returncode} |
 | shell_op | {"op": "sysinfo"} | System info dict |
 | json_op | {"op": "read", "path": str} | Parsed JSON data |
