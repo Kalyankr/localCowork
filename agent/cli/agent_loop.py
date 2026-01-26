@@ -85,8 +85,11 @@ def _process_input(user_input: str, model: str, history: list):
             # Just show the chat response
             _show_response(plan.steps[0].args.get("response", ""), model)
         else:
-            # Execute the plan with tools
-            _execute_plan(plan, user_input, model)
+            # Show plan and ask for approval
+            if _show_plan_and_approve(plan):
+                _execute_plan(plan, user_input, model)
+            else:
+                console.print("  [dim]Cancelled.[/dim]")
             
     except LLMError as e:
         print_error("AI Error", str(e))
@@ -96,9 +99,54 @@ def _process_input(user_input: str, model: str, history: list):
     console.print()
 
 
+def _show_plan_and_approve(plan) -> bool:
+    """Show the plan and ask for user approval."""
+    console.print(f"  [bold cyan]📋 Plan[/bold cyan] ({len(plan.steps)} steps)")
+    console.print()
+    
+    for i, step in enumerate(plan.steps, 1):
+        action = step.action
+        desc = step.description or ""
+        
+        # Show action with icon
+        action_icons = {
+            "shell_op": "💻",
+            "read_file": "📄",
+            "write_file": "✏️",
+            "list_dir": "📁",
+            "fetch_url": "🌐",
+            "run_python": "🐍",
+            "search_files": "🔍",
+        }
+        icon = action_icons.get(action, "•")
+        
+        console.print(f"  {i}. {icon} [cyan]{action}[/cyan]")
+        if desc:
+            console.print(f"     [dim]{desc[:60]}{'...' if len(desc) > 60 else ''}[/dim]")
+        
+        # Show key args
+        if step.args:
+            for key, val in list(step.args.items())[:2]:
+                if val and key not in ("response",):
+                    val_str = str(val)[:40]
+                    console.print(f"     [dim]{key}: {val_str}{'...' if len(str(val)) > 40 else ''}[/dim]")
+    
+    console.print()
+    
+    # Ask for approval
+    try:
+        response = console.input("  [yellow]Execute?[/yellow] [dim](y/n)[/dim] ").strip().lower()
+        return response in ("y", "yes", "")
+    except (KeyboardInterrupt, EOFError):
+        return False
+
+
 def _execute_plan(plan, request: str, model: str):
-    """Execute a plan and show results."""
+    """Execute a plan and show results with live progress."""
     import asyncio
+    from rich.live import Live
+    from rich.table import Table
+    from rich import box
     from agent.orchestrator.executor import Executor
     from agent.orchestrator.planner import summarize_results
     from agent.orchestrator.deps import get_tool_registry, get_sandbox
@@ -106,21 +154,43 @@ def _execute_plan(plan, request: str, model: str):
     tool_registry = get_tool_registry()
     sandbox = get_sandbox()
     
-    # Show what we're doing
-    console.print(f"  [dim]╭─ {Icons.ROBOT} Executing {len(plan.steps)} step(s)[/dim]")
+    console.print()
+    console.print(f"  [bold cyan]⚡ Executing[/bold cyan]")
+    console.print()
     
     step_status = {}
+    step_errors = {}
+    
+    def build_progress_table():
+        """Build a live-updating progress table."""
+        table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+        table.add_column("", width=3)
+        table.add_column("Step", width=50)
+        table.add_column("Status", width=10)
+        
+        for step in plan.steps:
+            status = step_status.get(step.id, "pending")
+            desc = (step.description or step.action)[:45]
+            
+            icons = {
+                "pending": ("○", "dim"),
+                "starting": ("●", "yellow"),
+                "success": ("✓", "green"),
+                "error": ("✗", "red"),
+                "skipped": ("◌", "dim"),
+            }
+            icon, color = icons.get(status, ("●", "yellow"))
+            
+            table.add_row(
+                f"  [{color}]{icon}[/{color}]",
+                f"[{color}]{desc}[/{color}]",
+                f"[{color}]{status}[/{color}]"
+            )
+        
+        return table
     
     def on_progress(step_id: str, status: str, current: int, total: int):
         step_status[step_id] = status
-        icon = {"starting": "○", "success": "✓", "error": "✗", "skipped": "◌"}.get(status, "●")
-        color = {"success": "green", "error": "red", "skipped": "dim"}.get(status, "yellow")
-        # Find step description
-        for step in plan.steps:
-            if step.id == step_id:
-                desc = (step.description or step.action)[:40]
-                console.print(f"  [dim]│[/dim] [{color}]{icon}[/{color}] {desc}")
-                break
     
     executor = Executor(
         plan=plan,
@@ -130,19 +200,41 @@ def _execute_plan(plan, request: str, model: str):
         parallel=True,
     )
     
-    results = asyncio.run(executor.run())
+    # Run with live progress display
+    with Live(build_progress_table(), console=console, refresh_per_second=4) as live:
+        async def run_with_updates():
+            async def updater():
+                while len([s for s in step_status.values() if s in ("success", "error", "skipped")]) < len(plan.steps):
+                    live.update(build_progress_table())
+                    await asyncio.sleep(0.2)
+            
+            update_task = asyncio.create_task(updater())
+            try:
+                return await executor.run()
+            finally:
+                update_task.cancel()
+                try:
+                    await update_task
+                except asyncio.CancelledError:
+                    pass
+        
+        results = asyncio.run(run_with_updates())
+        live.update(build_progress_table())
     
-    console.print(f"  [dim]╰─────[/dim]")
     console.print()
     
-    # Summarize results
+    # Show results summary
     success_count = sum(1 for r in results.values() if r.status == "success")
     failed_count = sum(1 for r in results.values() if r.status in ("error", "skipped"))
     
     if failed_count == 0:
-        console.print(f"  [green]{Icons.SUCCESS}[/green] All {success_count} steps completed")
+        console.print(f"  [green]✓[/green] All {success_count} steps completed")
     else:
         console.print(f"  [yellow]⚠[/yellow] {success_count} succeeded, {failed_count} failed")
+        # Show errors
+        for step_id, result in results.items():
+            if result.error:
+                console.print(f"    [red]✗[/red] {step_id}: [dim]{result.error[:60]}[/dim]")
     
     console.print()
     
