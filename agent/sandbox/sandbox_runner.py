@@ -3,6 +3,8 @@ import subprocess
 import logging
 from pathlib import Path
 
+from agent.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,11 +15,12 @@ class Sandbox:
     - Writes the user code into script.py
     - Runs it inside a Python Docker container
     - Mounts ONLY the temp directory
+    - Enforces resource limits (memory, CPU, PIDs)
     - Returns stdout or error messages
     """
 
-    def __init__(self, timeout: int = 30):
-        self.timeout = timeout
+    def __init__(self, timeout: int | None = None):
+        self.timeout = timeout or settings.sandbox_timeout
         self._docker_available: bool | None = None
     
     def _check_docker(self) -> bool:
@@ -52,18 +55,24 @@ class Sandbox:
             # Write the code to the sandbox
             script_path.write_text(code)
 
-            # Docker command
+            # Docker command with resource limits
             cmd = [
                 "docker",
                 "run",
                 "--rm",
                 "--network",
                 "none",
+                "--memory",
+                settings.sandbox_memory_limit,
+                "--cpus",
+                settings.sandbox_cpu_limit,
+                "--pids-limit",
+                str(settings.sandbox_pids_limit),
                 "-v",
-                f"{tmpdir}:/app",
+                f"{tmpdir}:/app:ro",
                 "--workdir",
                 "/app",
-                "python:3.12-slim",
+                settings.docker_image,
                 "python",
                 "script.py",
             ]

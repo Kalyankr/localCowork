@@ -1,3 +1,16 @@
+"""LLM prompts for LocalCowork.
+
+This module contains versioned prompts used by the planner and other components.
+Version tracking helps with reproducibility and debugging.
+"""
+
+# Prompt versions for tracking changes
+PROMPT_VERSIONS = {
+    "planner": "1.0.0",
+    "summarizer": "1.0.0",
+    "code_fix": "1.0.0",
+}
+
 PLANNER_PROMPT = """You are a task planner that converts natural language requests into executable step-by-step plans.
 
 OUTPUT FORMAT: Return ONLY a valid JSON object. 

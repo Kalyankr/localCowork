@@ -1,19 +1,20 @@
 import json
-import os
 import logging
 import requests
 import re
 from requests.exceptions import ConnectionError, Timeout, RequestException
 
+from agent.config import settings
+
 logger = logging.getLogger(__name__)
 
-# Configuration via environment variables with sensible defaults
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-MODEL = os.getenv("OLLAMA_MODEL", "mistral")
-TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+# Configuration from centralized settings
+OLLAMA_URL = settings.ollama_url
+MODEL = settings.ollama_model
+TIMEOUT = settings.ollama_timeout
 
 # Retry settings for JSON generation
-MAX_JSON_RETRIES = 2
+MAX_JSON_RETRIES = settings.max_json_retries
 
 
 class LLMError(Exception):

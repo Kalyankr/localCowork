@@ -13,8 +13,7 @@ from rich import box
 
 from agent.orchestrator.planner import generate_plan
 from agent.orchestrator.executor import Executor
-from agent.tools import create_default_registry
-from agent.sandbox.sandbox_runner import Sandbox
+from agent.orchestrator.deps import get_tool_registry, get_sandbox
 from agent.llm.client import LLMError
 
 __version__ = "0.1.0"
@@ -110,15 +109,15 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Use shared registry (lazy loaded)
+# Use shared dependencies (lazy loaded via deps.py)
 _tool_registry = None
 _sandbox = None
 
 def get_tools():
     global _tool_registry, _sandbox
     if _tool_registry is None:
-        _tool_registry = create_default_registry()
-        _sandbox = Sandbox()
+        _tool_registry = get_tool_registry()
+        _sandbox = get_sandbox()
     return _tool_registry, _sandbox
 
 

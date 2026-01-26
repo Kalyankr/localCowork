@@ -1,5 +1,6 @@
 import uvicorn
 from agent.orchestrator.server import app
+from agent.config import settings
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host=settings.server_host, port=settings.server_port)

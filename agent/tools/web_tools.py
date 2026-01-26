@@ -148,7 +148,7 @@ def download_file(url: str, dest: str) -> str:
         return f"Error downloading: {e}"
 
 
-def dispatch(op: str, **kwargs):
+def dispatch(op: str, **kwargs) -> dict | list | str:
     """Dispatch web operations."""
     if op == "fetch":
         return fetch_url(kwargs["url"], kwargs.get("extract_text", True))

@@ -27,7 +27,7 @@ Response:"""
     return call_llm(prompt)
 
 
-def dispatch(op: str, **kwargs):
+def dispatch(op: str, **kwargs) -> str:
     """Dispatch chat operations."""
     if op == "respond":
         return chat_response(kwargs.get("message", ""))

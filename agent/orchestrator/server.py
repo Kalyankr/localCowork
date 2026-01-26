@@ -4,8 +4,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from agent.orchestrator.models import TaskRequest, TaskResponse, ConversationMessage
 from agent.orchestrator.planner import generate_plan, summarize_results
 from agent.orchestrator.executor import Executor
-from agent.tools import create_default_registry
-from agent.sandbox.sandbox_runner import Sandbox
+from agent.orchestrator.deps import get_tool_registry, get_sandbox
+from agent.config import settings
 from agent.llm.client import LLMError
 import uuid
 import json
@@ -24,9 +24,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Use shared registry
-tool_registry = create_default_registry()
-sandbox = Sandbox()
+# Use shared dependencies
+tool_registry = get_tool_registry()
+sandbox = get_sandbox()
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"
@@ -36,8 +36,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 conversation_history: Dict[str, List[ConversationMessage]] = defaultdict(list)
 conversation_timestamps: Dict[str, float] = {}  # For cleanup
 
-# Session timeout (1 hour)
-SESSION_TIMEOUT = 3600
+# Session timeout from config
+SESSION_TIMEOUT = settings.session_timeout
+MAX_HISTORY_MESSAGES = settings.max_history_messages
 
 
 def cleanup_old_sessions():
@@ -65,9 +66,9 @@ def add_to_history(session_id: str, role: str, content: str):
     )
     conversation_timestamps[session_id] = time.time()
     
-    # Keep only last 20 messages per session to prevent memory bloat
-    if len(conversation_history[session_id]) > 20:
-        conversation_history[session_id] = conversation_history[session_id][-20:]
+    # Keep only last N messages per session to prevent memory bloat
+    if len(conversation_history[session_id]) > MAX_HISTORY_MESSAGES:
+        conversation_history[session_id] = conversation_history[session_id][-MAX_HISTORY_MESSAGES:]
 
 
 @app.get("/")

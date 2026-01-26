@@ -156,7 +156,7 @@ def diff_json(obj1: Any, obj2: Any) -> dict:
     return _diff(obj1, obj2)
 
 
-def dispatch(op: str, **kwargs):
+def dispatch(op: str, **kwargs) -> Any:
     """Dispatch JSON operations."""
     if op == "read":
         return read_json(kwargs["path"])

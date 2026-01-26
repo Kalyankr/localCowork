@@ -128,7 +128,7 @@ def get_system_info() -> dict:
     }
 
 
-def dispatch(op: str, **kwargs):
+def dispatch(op: str, **kwargs) -> dict:
     """Dispatch shell operations."""
     if op == "run":
         return run_command(

@@ -138,7 +138,7 @@ def extract_auto(source: str, dest: str) -> str:
         return f"Extracted to: {dest_path}"
 
 
-def dispatch(op: str, **kwargs):
+def dispatch(op: str, **kwargs) -> str | list:
     """Dispatch archive operations."""
     if op == "zip":
         return create_zip(kwargs["source"], kwargs["dest"], kwargs.get("compression", "deflate"))
