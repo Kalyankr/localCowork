@@ -6,6 +6,14 @@ import pandas as pd
 from pathlib import Path
 from typing import Any
 
+from agent.security import (
+    validate_path,
+    validate_string,
+    validate_integer,
+    PathTraversalError,
+    InputValidationError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +29,17 @@ def _to_path(val: str | dict) -> Path:
     return Path(str(val)).expanduser()
 
 
+def _safe_path(val: str | dict, must_exist: bool = False) -> Path:
+    """Convert to path and validate for security."""
+    try:
+        raw_path = val.get("path") if isinstance(val, dict) else str(val)
+        return validate_path(raw_path, must_exist=must_exist, allow_symlinks=True)
+    except PathTraversalError as e:
+        raise DataOperationError(f"Security error: {e}")
+    except InputValidationError as e:
+        raise DataOperationError(str(e))
+
+
 def _validate_file(path: Path, extensions: list[str] | None = None) -> None:
     """Validate file exists and optionally check extension."""
     if not path.exists():
@@ -33,8 +52,8 @@ def _validate_file(path: Path, extensions: list[str] | None = None) -> None:
 
 def csv_to_excel(csv_path: str | dict, excel_path: str | dict) -> str:
     """Convert a CSV file to Excel format."""
-    src = _to_path(csv_path)
-    dest = _to_path(excel_path)
+    src = _safe_path(csv_path, must_exist=True)
+    dest = _safe_path(excel_path)
     
     _validate_file(src, ['.csv'])
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -58,8 +77,8 @@ def excel_to_csv(excel_path: str | dict, csv_path: str | dict, sheet: str | int 
         csv_path: Output CSV path
         sheet: Sheet name or index to convert
     """
-    src = _to_path(excel_path)
-    dest = _to_path(csv_path)
+    src = _safe_path(excel_path, must_exist=True)
+    dest = _safe_path(csv_path)
     
     _validate_file(src, ['.xlsx', '.xls'])
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -74,8 +93,8 @@ def excel_to_csv(excel_path: str | dict, csv_path: str | dict, sheet: str | int 
 
 def json_to_csv(json_path: str | dict, csv_path: str | dict) -> str:
     """Convert a JSON file (array of objects) to CSV format."""
-    src = _to_path(json_path)
-    dest = _to_path(csv_path)
+    src = _safe_path(json_path, must_exist=True)
+    dest = _safe_path(csv_path)
     
     _validate_file(src, ['.json'])
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -98,8 +117,8 @@ def json_to_csv(json_path: str | dict, csv_path: str | dict) -> str:
 
 def csv_to_json(csv_path: str | dict, json_path: str | dict) -> str:
     """Convert a CSV file to JSON format (array of objects)."""
-    src = _to_path(csv_path)
-    dest = _to_path(json_path)
+    src = _safe_path(csv_path, must_exist=True)
+    dest = _safe_path(json_path)
     
     _validate_file(src, ['.csv'])
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +145,7 @@ def preview_data(path: str | dict, rows: int = 10) -> dict:
     Returns:
         Dict with preview data and metadata
     """
-    p = _to_path(path)
+    p = _safe_path(path, must_exist=True)
     _validate_file(p)
     
     ext = p.suffix.lower()
@@ -172,7 +191,7 @@ def get_stats(path: str | dict) -> dict:
     Returns:
         Dict with statistical summary
     """
-    p = _to_path(path)
+    p = _safe_path(path, must_exist=True)
     _validate_file(p)
     
     ext = p.suffix.lower()
@@ -224,8 +243,13 @@ def filter_data(
     Returns:
         Success message with row count
     """
-    p = _to_path(path)
-    out_p = _to_path(output)
+    # Validate operator
+    valid_operators = {"eq", "ne", "gt", "lt", "ge", "le", "contains"}
+    if operator not in valid_operators:
+        raise DataOperationError(f"Invalid operator: {operator}. Must be one of: {valid_operators}")
+    
+    p = _safe_path(path, must_exist=True)
+    out_p = _safe_path(output)
     _validate_file(p)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     

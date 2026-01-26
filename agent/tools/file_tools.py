@@ -3,6 +3,15 @@ import shutil
 import logging
 from typing import Any
 
+from agent.security import (
+    validate_path,
+    validate_filename,
+    validate_string,
+    PathTraversalError,
+    InputValidationError,
+    SecurityError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,12 +27,26 @@ def _to_path(val: str | dict) -> Path:
     return Path(str(val)).expanduser()
 
 
-def _validate_path(path: Path, must_exist: bool = False, must_be_dir: bool = False) -> None:
-    """Validate a path, raising FileOperationError if invalid."""
-    if must_exist and not path.exists():
-        raise FileOperationError(f"Path does not exist: {path}")
-    if must_be_dir and path.exists() and not path.is_dir():
-        raise FileOperationError(f"Path is not a directory: {path}")
+def _safe_path(val: str | dict, must_exist: bool = False) -> Path:
+    """Convert to path and validate for security.
+    
+    Args:
+        val: Path string or dict with 'path' key
+        must_exist: If True, path must exist
+        
+    Returns:
+        Validated Path object
+        
+    Raises:
+        FileOperationError: If path is invalid or unsafe
+    """
+    try:
+        raw_path = val.get("path") if isinstance(val, dict) else str(val)
+        return validate_path(raw_path, must_exist=must_exist, allow_symlinks=True)
+    except PathTraversalError as e:
+        raise FileOperationError(f"Security error: {e}")
+    except InputValidationError as e:
+        raise FileOperationError(str(e))
 
 
 def list_files(path: str | dict, raise_on_missing: bool = False, recursive: bool = False, pattern: str | None = None) -> list[dict]:
@@ -41,7 +64,12 @@ def list_files(path: str | dict, raise_on_missing: bool = False, recursive: bool
     Raises:
         FileOperationError: If raise_on_missing=True and path doesn't exist
     """
-    p = _to_path(path)
+    try:
+        p = _safe_path(path)
+    except FileOperationError:
+        if raise_on_missing:
+            raise
+        return []
     
     if not p.exists():
         if raise_on_missing:
@@ -54,6 +82,16 @@ def list_files(path: str | dict, raise_on_missing: bool = False, recursive: bool
             raise FileOperationError(f"Path is not a directory: {p}")
         logger.warning(f"Path is not a directory: {p}")
         return []
+    
+    # Validate pattern if provided
+    if pattern:
+        try:
+            validate_string(pattern, "pattern", max_length=256)
+            # Block dangerous patterns
+            if '..' in pattern:
+                raise FileOperationError("Pattern cannot contain '..'")
+        except InputValidationError as e:
+            raise FileOperationError(str(e))
     
     results = []
     
@@ -94,12 +132,12 @@ def move_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
         Success message describing the operation
         
     Raises:
-        FileOperationError: If source doesn't exist
+        FileOperationError: If source doesn't exist or security violation
     """
     if not src:
         return "No files found to move; skipping."
     
-    dest_path = _to_path(dest)
+    dest_path = _safe_path(dest)
     # Create destination if it's a directory and doesn't exist
     if not dest_path.suffix and not dest_path.exists():
         dest_path.mkdir(parents=True, exist_ok=True)
@@ -108,9 +146,10 @@ def move_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
         moved = []
         errors = []
         for s in src:
-            s_path = _to_path(s)
-            if not s_path.exists():
-                errors.append(f"Source not found: {s_path}")
+            try:
+                s_path = _safe_path(s, must_exist=True)
+            except FileOperationError as e:
+                errors.append(str(e))
                 continue
             try:
                 shutil.move(str(s_path), str(dest_path))
@@ -123,9 +162,7 @@ def move_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
             msg += f" ({len(errors)} errors: {'; '.join(errors[:3])})"
         return msg
     else:
-        src_path = _to_path(src)
-        if not src_path.exists():
-            raise FileOperationError(f"Source not found: {src_path}")
+        src_path = _safe_path(src, must_exist=True)
         shutil.move(str(src_path), str(dest_path))
         return f"Moved {src_path} → {dest_path}"
 
@@ -138,8 +175,11 @@ def create_dir(path: str | dict) -> str:
         
     Returns:
         Success message
+        
+    Raises:
+        FileOperationError: If path is unsafe
     """
-    p = _to_path(path)
+    p = _safe_path(path)
     p.mkdir(parents=True, exist_ok=True)
     return f"Created directory {p}"
 
@@ -155,13 +195,15 @@ def rename_file(path: str | dict, new_name: str) -> str:
         Success message
         
     Raises:
-        FileOperationError: If path doesn't exist
+        FileOperationError: If path doesn't exist or name is unsafe
     """
-    if not new_name:
-        raise FileOperationError("new_name cannot be empty")
-    p = _to_path(path)
-    if not p.exists():
-        raise FileOperationError(f"Path not found: {p}")
+    # Validate new_name to prevent path traversal
+    try:
+        new_name = validate_filename(new_name)
+    except (InputValidationError, PathTraversalError) as e:
+        raise FileOperationError(f"Invalid filename: {e}")
+    
+    p = _safe_path(path, must_exist=True)
     new_path = p.with_name(new_name)
     p.rename(new_path)
     return f"Renamed {p} → {new_path}"
@@ -177,11 +219,9 @@ def read_text(path: str | dict) -> str:
         File content as string
         
     Raises:
-        FileOperationError: If path doesn't exist or isn't a file
+        FileOperationError: If path doesn't exist, isn't a file, or is unsafe
     """
-    p = _to_path(path)
-    if not p.exists():
-        raise FileOperationError(f"File not found: {p}")
+    p = _safe_path(path, must_exist=True)
     if not p.is_file():
         raise FileOperationError(f"Not a file: {p}")
     return p.read_text()
@@ -196,10 +236,17 @@ def write_text(path: str | dict, content: str) -> str:
         
     Returns:
         Success message
+        
+    Raises:
+        FileOperationError: If path is unsafe or content is invalid
     """
-    if content is None:
-        raise FileOperationError("content cannot be None")
-    p = _to_path(path)
+    # Validate content
+    try:
+        validate_string(content, "content", allow_empty=True, max_length=50_000_000)  # 50MB max
+    except InputValidationError as e:
+        raise FileOperationError(str(e))
+    
+    p = _safe_path(path)
     # Create parent directories if needed
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
@@ -217,12 +264,12 @@ def copy_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
         Success message describing the operation
         
     Raises:
-        FileOperationError: If source doesn't exist
+        FileOperationError: If source doesn't exist or path is unsafe
     """
     if not src:
         return "No files found to copy; skipping."
     
-    dest_path = _to_path(dest)
+    dest_path = _safe_path(dest)
     
     if isinstance(src, list):
         # Multiple files - dest must be a directory
@@ -232,9 +279,10 @@ def copy_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
         copied = []
         errors = []
         for s in src:
-            s_path = _to_path(s)
-            if not s_path.exists():
-                errors.append(f"Source not found: {s_path}")
+            try:
+                s_path = _safe_path(s, must_exist=True)
+            except FileOperationError as e:
+                errors.append(str(e))
                 continue
             try:
                 if s_path.is_dir():
@@ -250,9 +298,7 @@ def copy_file(src: str | dict | list[str | dict], dest: str | dict) -> str:
             msg += f" ({len(errors)} errors: {'; '.join(errors[:3])})"
         return msg
     else:
-        src_path = _to_path(src)
-        if not src_path.exists():
-            raise FileOperationError(f"Source not found: {src_path}")
+        src_path = _safe_path(src, must_exist=True)
         
         if src_path.is_dir():
             shutil.copytree(str(src_path), str(dest_path))
@@ -274,11 +320,9 @@ def delete_file(path: str | dict, recursive: bool = False) -> str:
         Success message
         
     Raises:
-        FileOperationError: If path doesn't exist
+        FileOperationError: If path doesn't exist or is unsafe
     """
-    p = _to_path(path)
-    if not p.exists():
-        raise FileOperationError(f"Path not found: {p}")
+    p = _safe_path(path, must_exist=True)
     
     if p.is_dir():
         if recursive:
@@ -305,11 +349,9 @@ def get_file_info(path: str | dict) -> dict:
         Dict with file metadata
         
     Raises:
-        FileOperationError: If path doesn't exist
+        FileOperationError: If path doesn't exist or is unsafe
     """
-    p = _to_path(path)
-    if not p.exists():
-        raise FileOperationError(f"Path not found: {p}")
+    p = _safe_path(path, must_exist=True)
     
     stat = p.stat()
     return {
@@ -336,10 +378,11 @@ def get_dir_size(path: str | dict) -> dict:
         
     Returns:
         Dict with size information
+        
+    Raises:
+        FileOperationError: If path doesn't exist or is unsafe
     """
-    p = _to_path(path)
-    if not p.exists():
-        raise FileOperationError(f"Path not found: {p}")
+    p = _safe_path(path, must_exist=True)
     if not p.is_dir():
         raise FileOperationError(f"Not a directory: {p}")
     
@@ -376,10 +419,19 @@ def find_files(path: str | dict, pattern: str, recursive: bool = True) -> list[d
         
     Returns:
         List of matching file info dicts
+        
+    Raises:
+        FileOperationError: If path doesn't exist or pattern is unsafe
     """
-    p = _to_path(path)
-    if not p.exists():
-        raise FileOperationError(f"Path not found: {p}")
+    p = _safe_path(path, must_exist=True)
+    
+    # Validate pattern
+    try:
+        validate_string(pattern, "pattern", min_length=1, max_length=256)
+        if '..' in pattern:
+            raise FileOperationError("Pattern cannot contain '..'")
+    except InputValidationError as e:
+        raise FileOperationError(str(e))
     
     results = []
     iterator = p.rglob(pattern) if recursive else p.glob(pattern)

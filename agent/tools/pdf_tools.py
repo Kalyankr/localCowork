@@ -3,6 +3,14 @@ import logging
 from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PdfReadError
 
+from agent.security import (
+    validate_path,
+    validate_string,
+    validate_integer,
+    PathTraversalError,
+    InputValidationError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,6 +24,17 @@ def _to_path(val: str | dict) -> Path:
     if isinstance(val, dict) and "path" in val:
         return Path(val["path"]).expanduser()
     return Path(str(val)).expanduser()
+
+
+def _safe_path(val: str | dict, must_exist: bool = False) -> Path:
+    """Convert to path and validate for security."""
+    try:
+        raw_path = val.get("path") if isinstance(val, dict) else str(val)
+        return validate_path(raw_path, must_exist=must_exist, allow_symlinks=True)
+    except PathTraversalError as e:
+        raise PDFOperationError(f"Security error: {e}")
+    except InputValidationError as e:
+        raise PDFOperationError(str(e))
 
 
 def _validate_pdf(path: Path) -> None:
@@ -33,7 +52,12 @@ def extract_metadata(files: list) -> dict:
     
     results = {}
     for f in files:
-        path = _to_path(f)
+        try:
+            path = _safe_path(f)
+        except PDFOperationError as e:
+            results[str(f)] = {"error": str(e)}
+            continue
+        
         key = str(path)
         
         if not path.exists():
@@ -79,7 +103,7 @@ def extract_text(
     Returns:
         Dict with text content and metadata
     """
-    p = _to_path(path)
+    p = _safe_path(path, must_exist=True)
     _validate_pdf(p)
     
     try:
@@ -131,7 +155,7 @@ def get_page_count(path: str | dict) -> dict:
     Returns:
         Dict with page count info
     """
-    p = _to_path(path)
+    p = _safe_path(path, must_exist=True)
     _validate_pdf(p)
     
     try:
@@ -157,13 +181,13 @@ def merge_pdfs(files: list, output: str | dict) -> str:
     if not files:
         raise PDFOperationError("No files provided to merge")
     
-    output_path = _to_path(output)
+    output_path = _safe_path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     writer = PdfWriter()
     
     for f in files:
-        p = _to_path(f)
+        p = _safe_path(f, must_exist=True)
         _validate_pdf(p)
         
         try:
@@ -194,10 +218,16 @@ def split_pdf(
     Returns:
         Dict with split info
     """
-    p = _to_path(path)
+    # Validate pages_per_file
+    try:
+        pages_per_file = validate_integer(pages_per_file, "pages_per_file", min_value=1, max_value=1000)
+    except InputValidationError as e:
+        raise PDFOperationError(str(e))
+    
+    p = _safe_path(path, must_exist=True)
     _validate_pdf(p)
     
-    out_dir = _to_path(output_dir)
+    out_dir = _safe_path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     
     try:
