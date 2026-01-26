@@ -78,7 +78,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull mistral
 
 # 2. Clone the repository
-git clone https://github.com/yourusername/localCowork.git
+git clone https://github.com/Kalyankr/localCowork.git
 cd localCowork
 
 # 3. Install with uv (recommended) or pip
