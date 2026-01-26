@@ -9,196 +9,354 @@
             --bg: #0f0f0f;
             --surface: #1a1a1a;
             --surface-hover: #252525;
+            --surface-elevated: #222;
             --border: #333;
             --text: #e5e5e5;
             --text-dim: #888;
             --accent: #3b82f6;
+            --accent-dim: #2563eb;
             --success: #22c55e;
             --error: #ef4444;
             --warning: #f59e0b;
+            --purple: #8b5cf6;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
-            min-height: 100vh;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        /* ===== Sidebar ===== */
+        .sidebar {
+            width: 280px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
+            flex-shrink: 0;
         }
-        header {
-            padding: 1rem 1.5rem;
+        .sidebar-header {
+            padding: 1rem;
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 0.5rem;
         }
-        header h1 {
-            font-size: 1.25rem;
+        .sidebar-header h1 {
+            font-size: 1.1rem;
             font-weight: 600;
         }
-        header .badge {
-            font-size: 0.7rem;
+        .sidebar-header .badge {
+            font-size: 0.65rem;
             background: var(--accent);
-            padding: 0.2rem 0.5rem;
+            padding: 0.15rem 0.4rem;
             border-radius: 4px;
             text-transform: uppercase;
         }
-        main {
+        .new-task-btn {
+            margin: 0.75rem;
+            padding: 0.6rem;
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .new-task-btn:hover { background: var(--accent-dim); }
+        
+        .task-list {
             flex: 1;
             overflow-y: auto;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            max-width: 900px;
-            margin: 0 auto;
-            width: 100%;
+            padding: 0.5rem;
         }
-        .message {
-            background: var(--surface);
-            border-radius: 12px;
-            padding: 1rem 1.25rem;
-            border: 1px solid var(--border);
-        }
-        .message.user {
-            background: var(--accent);
-            border-color: var(--accent);
-            align-self: flex-end;
-            max-width: 80%;
-        }
-        .message.assistant {
-            align-self: flex-start;
-            max-width: 90%;
-        }
-        .message-label {
+        .task-list-header {
             font-size: 0.7rem;
             text-transform: uppercase;
             color: var(--text-dim);
-            margin-bottom: 0.5rem;
+            padding: 0.5rem;
             font-weight: 600;
         }
-        .message.user .message-label { color: rgba(255,255,255,0.7); }
-        
-        /* Plan display */
-        .plan-section {
-            margin-top: 0.75rem;
+        .task-item {
+            padding: 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 0.25rem;
+            border: 1px solid transparent;
         }
-        .plan-section h3 {
+        .task-item:hover { background: var(--surface-hover); }
+        .task-item.active {
+            background: var(--surface-hover);
+            border-color: var(--accent);
+        }
+        .task-item-title {
             font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.25rem;
+        }
+        .task-item-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
             color: var(--text-dim);
+        }
+        .task-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+        }
+        .task-status.pending { background: var(--surface-elevated); }
+        .task-status.planning { background: var(--purple); color: white; }
+        .task-status.awaiting_approval { background: var(--warning); color: black; }
+        .task-status.approved, .task-status.executing { background: var(--accent); color: white; }
+        .task-status.completed { background: var(--success); color: white; }
+        .task-status.failed, .task-status.rejected { background: var(--error); color: white; }
+        .task-status.cancelled { background: var(--text-dim); color: white; }
+        
+        /* ===== Main Content ===== */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        
+        .task-view {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .task-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .task-header h2 {
+            font-size: 1rem;
+            font-weight: 500;
             margin-bottom: 0.5rem;
+        }
+        .task-header-meta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+        
+        .task-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+        }
+        
+        /* ===== Plan Display ===== */
+        .plan-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .plan-card h3 {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
         .step {
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 0;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem 0;
             border-bottom: 1px solid var(--border);
-            font-size: 0.9rem;
         }
         .step:last-child { border-bottom: none; }
-        .step-status {
-            width: 20px;
-            text-align: center;
-        }
-        .step-id {
-            color: var(--accent);
-            font-weight: 500;
-            min-width: 120px;
-        }
-        .step-desc {
-            color: var(--text-dim);
-            flex: 1;
-        }
-        .step.pending .step-status::before { content: "⏳"; }
-        .step.running .step-status::before { content: "▶️"; }
-        .step.success .step-status::before { content: "✅"; }
-        .step.error .step-status::before { content: "❌"; }
-        .step.skipped .step-status::before { content: "⊘"; opacity: 0.5; }
-        
-        /* Accordion */
-        .accordion-header {
+        .step-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            cursor: pointer;
-            padding: 0.5rem 0;
-            user-select: none;
+            justify-content: center;
+            font-size: 0.75rem;
+            flex-shrink: 0;
         }
-        .accordion-header:hover {
-            color: var(--accent);
+        .step-icon.pending { background: var(--surface-elevated); color: var(--text-dim); }
+        .step-icon.running { background: var(--accent); color: white; animation: pulse 1.5s infinite; }
+        .step-icon.success { background: var(--success); color: white; }
+        .step-icon.error { background: var(--error); color: white; }
+        .step-icon.skipped { background: var(--text-dim); color: white; opacity: 0.5; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
-        .accordion-toggle {
+        .step-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .step-title {
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+        .step-desc {
             font-size: 0.8rem;
             color: var(--text-dim);
-            transition: transform 0.2s;
         }
-        .accordion-toggle.open {
-            transform: rotate(180deg);
-        }
-        .accordion-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease-out;
-        }
-        .accordion-content.open {
-            max-height: 1000px;
-        }
-        .step-count {
+        .step-action {
             font-size: 0.75rem;
-            color: var(--text-dim);
-            margin-left: 0.5rem;
-            display: inline-flex;
+            color: var(--accent);
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+        
+        /* ===== Approval Banner ===== */
+        .approval-banner {
+            background: linear-gradient(135deg, #44403c 0%, #292524 100%);
+            border: 1px solid var(--warning);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .approval-banner h3 {
+            color: var(--warning);
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            display: flex;
             align-items: center;
             gap: 0.5rem;
         }
-        .step-count .done { color: var(--success); }
-        .step-count .error { color: var(--error); }
-        .step-count .in-progress {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            color: var(--accent);
+        .approval-banner p {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
         }
-        .step-count .mini-spinner {
-            width: 12px;
-            height: 12px;
-            border: 2px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
+        .approval-actions {
+            display: flex;
+            gap: 0.75rem;
         }
+        .btn {
+            padding: 0.6rem 1.25rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-approve {
+            background: var(--success);
+            color: white;
+        }
+        .btn-approve:hover { filter: brightness(1.1); }
+        .btn-reject {
+            background: transparent;
+            color: var(--error);
+            border: 1px solid var(--error);
+        }
+        .btn-reject:hover { background: rgba(239, 68, 68, 0.1); }
+        .btn-cancel {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+        .btn-cancel:hover { background: var(--surface-hover); }
         
-        /* Summary */
-        .summary {
+        /* ===== Summary Card ===== */
+        .summary-card {
             background: linear-gradient(135deg, #1e3a2f 0%, #1a1a1a 100%);
-            border-color: var(--success);
+            border: 1px solid var(--success);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .summary-card h3 {
+            color: var(--success);
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
         }
         .summary-text {
             line-height: 1.6;
+            font-size: 0.9rem;
         }
         
-        /* Error display */
-        .error-box {
+        /* ===== Error Card ===== */
+        .error-card {
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid var(--error);
-            border-radius: 8px;
-            padding: 0.75rem;
-            margin-top: 0.5rem;
-            font-size: 0.85rem;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .error-card h3 {
             color: var(--error);
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
         }
         
-        /* Input area */
-        footer {
+        /* ===== Workspace Card ===== */
+        .workspace-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .workspace-card h3 {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .file-list {
+            font-size: 0.85rem;
+        }
+        .file-section {
+            margin-bottom: 1rem;
+        }
+        .file-section:last-child { margin-bottom: 0; }
+        .file-section-title {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0;
+            color: var(--text);
+        }
+        .file-item:hover { color: var(--accent); }
+        .file-icon { opacity: 0.6; }
+        
+        /* ===== Input Area ===== */
+        .input-area {
             padding: 1rem 1.5rem;
             border-top: 1px solid var(--border);
             background: var(--surface);
         }
         .input-container {
-            max-width: 900px;
-            margin: 0 auto;
             display: flex;
             gap: 0.75rem;
         }
@@ -211,15 +369,10 @@
             color: var(--text);
             font-size: 1rem;
             outline: none;
-            transition: border-color 0.2s;
         }
-        #task-input:focus {
-            border-color: var(--accent);
-        }
-        #task-input::placeholder {
-            color: var(--text-dim);
-        }
-        button {
+        #task-input:focus { border-color: var(--accent); }
+        #task-input::placeholder { color: var(--text-dim); }
+        #submit-btn {
             background: var(--accent);
             color: white;
             border: none;
@@ -227,47 +380,31 @@
             padding: 0.75rem 1.5rem;
             font-size: 1rem;
             cursor: pointer;
-            transition: opacity 0.2s;
             font-weight: 500;
         }
-        button:hover { opacity: 0.9; }
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        #submit-btn:hover { background: var(--accent-dim); }
+        #submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         
-        /* Loading spinner */
-        .spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid var(--text-dim);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* Empty state */
+        /* ===== Empty State ===== */
         .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             text-align: center;
-            color: var(--text-dim);
-            padding: 4rem 2rem;
+            padding: 2rem;
         }
         .empty-state h2 {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             margin-bottom: 0.5rem;
-            color: var(--text);
         }
         .empty-state p {
+            color: var(--text-dim);
             max-width: 400px;
-            margin: 0 auto;
-            line-height: 1.5;
+            margin-bottom: 1.5rem;
         }
         .examples {
-            margin-top: 1.5rem;
             display: flex;
             flex-wrap: wrap;
             gap: 0.5rem;
@@ -276,240 +413,547 @@
         .example-btn {
             background: var(--surface);
             border: 1px solid var(--border);
+            color: var(--text);
             padding: 0.5rem 1rem;
             font-size: 0.85rem;
             border-radius: 20px;
+            cursor: pointer;
         }
         .example-btn:hover {
-            background: var(--surface-hover);
             border-color: var(--accent);
+            background: var(--surface-hover);
         }
+        
+        /* ===== Loading ===== */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* ===== Connection Status ===== */
+        .connection-status {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .connection-dot.connected { background: var(--success); }
+        .connection-dot.disconnected { background: var(--error); }
+        .connection-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
     </style>
 </head>
 <body>
-    <header>
-        <h1>🤖 LocalCowork</h1>
-        <span class="badge">Local AI</span>
-    </header>
-    
-    <main id="messages">
-        <div class="empty-state" id="empty-state">
-            <h2>What can I help you with?</h2>
-            <p>Describe a task in plain English and I'll break it down into steps and execute it for you.</p>
-            <div class="examples">
-                <button class="example-btn" onclick="useExample(this)">Organize my Downloads folder</button>
-                <button class="example-btn" onclick="useExample(this)">Find all PDFs in ~/Documents</button>
-                <button class="example-btn" onclick="useExample(this)">List files modified today</button>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <span>🤖</span>
+            <h1>LocalCowork</h1>
+            <span class="badge">Local</span>
+        </div>
+        <button class="new-task-btn" onclick="newTask()">
+            <span>+</span> New Task
+        </button>
+        <div class="task-list" id="task-list">
+            <div class="task-list-header">Recent Tasks</div>
+            <!-- Tasks will be populated here -->
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div id="task-view" class="task-view">
+            <!-- Empty state shown by default -->
+            <div class="empty-state" id="empty-state">
+                <h2>What can I help you with?</h2>
+                <p>Describe a task in plain English. I'll create a plan and ask for your approval before executing.</p>
+                <div class="examples">
+                    <button class="example-btn" onclick="useExample(this)">Organize my Downloads folder</button>
+                    <button class="example-btn" onclick="useExample(this)">Find all PDFs in ~/Documents</button>
+                    <button class="example-btn" onclick="useExample(this)">List files modified today</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Input Area -->
+        <div class="input-area">
+            <div class="input-container">
+                <input 
+                    type="text" 
+                    id="task-input" 
+                    placeholder="Describe your task..." 
+                    autocomplete="off"
+                >
+                <button id="submit-btn" onclick="submitTask()">Run</button>
             </div>
         </div>
     </main>
-    
-    <footer>
-        <div class="input-container">
-            <input 
-                type="text" 
-                id="task-input" 
-                placeholder="Describe your task..." 
-                autocomplete="off"
-            >
-            <button id="submit-btn" onclick="submitTask()">Run</button>
-        </div>
-    </footer>
+
+    <!-- Connection Status -->
+    <div class="connection-status">
+        <span class="connection-dot" id="ws-status"></span>
+        <span id="ws-status-text">Connecting...</span>
+    </div>
 
     <script>
-        const messagesEl = document.getElementById('messages');
-        const inputEl = document.getElementById('task-input');
-        const submitBtn = document.getElementById('submit-btn');
-        const emptyState = document.getElementById('empty-state');
-        
-        let isRunning = false;
-        let sessionId = null;  // For multi-turn conversation
+        // ===== State =====
+        let ws = null;
+        let tasks = {};
+        let currentTaskId = null;
+        let sessionId = localStorage.getItem('sessionId') || null;
+        let isSubmitting = false;
 
-        function useExample(btn) {
-            inputEl.value = btn.textContent;
-            inputEl.focus();
-        }
-
-        inputEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !isRunning) {
-                submitTask();
-            }
-        });
-
-        async function submitTask() {
-            const request = inputEl.value.trim();
-            if (!request || isRunning) return;
-
-            isRunning = true;
-            submitBtn.disabled = true;
-            inputEl.disabled = true;
+        // ===== WebSocket =====
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
             
-            // Hide empty state
-            if (emptyState) emptyState.remove();
-
-            // Add user message
-            addMessage('user', request);
-            inputEl.value = '';
-
-            // Add assistant message placeholder
-            const assistantMsg = addMessage('assistant', '');
-            const content = assistantMsg.querySelector('.message-content');
-            content.innerHTML = '<div class="spinner"></div> Planning...';
-
+            updateConnectionStatus('connecting');
+            
+            ws.onopen = () => {
+                updateConnectionStatus('connected');
+                // Re-subscribe to current task if any
+                if (currentTaskId) {
+                    ws.send(JSON.stringify({ type: 'subscribe', task_id: currentTaskId }));
+                }
+            };
+            
+            ws.onclose = () => {
+                updateConnectionStatus('disconnected');
+                // Reconnect after delay
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onerror = () => {
+                updateConnectionStatus('disconnected');
+            };
+            
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleWebSocketMessage(msg);
+            };
+        }
+        
+        function updateConnectionStatus(status) {
+            const dot = document.getElementById('ws-status');
+            const text = document.getElementById('ws-status-text');
+            dot.className = 'connection-dot ' + status;
+            text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        }
+        
+        function handleWebSocketMessage(msg) {
+            console.log('WS message:', msg);
+            
+            switch (msg.type) {
+                case 'task_created':
+                    tasks[msg.task.id] = msg.task;
+                    renderTaskList();
+                    break;
+                    
+                case 'task_approved':
+                case 'task_rejected':
+                case 'task_cancelled':
+                case 'execution_started':
+                case 'task_completed':
+                case 'task_failed':
+                    if (currentTaskId === msg.task_id) {
+                        loadTask(msg.task_id);
+                    }
+                    break;
+                    
+                case 'step_progress':
+                    if (currentTaskId === msg.task_id) {
+                        updateStepStatus(msg.step_id, msg.status);
+                    }
+                    break;
+                    
+                case 'execution_results':
+                    if (currentTaskId === msg.task_id) {
+                        loadTask(msg.task_id);
+                    }
+                    break;
+            }
+        }
+        
+        // ===== API Calls =====
+        async function fetchTasks() {
             try {
-                // Include session_id for multi-turn conversation
-                const payload = { request };
-                if (sessionId) {
-                    payload.session_id = sessionId;
+                const res = await fetch('/tasks');
+                const data = await res.json();
+                data.forEach(t => tasks[t.id] = t);
+                renderTaskList();
+            } catch (err) {
+                console.error('Failed to fetch tasks:', err);
+            }
+        }
+        
+        async function loadTask(taskId) {
+            try {
+                const res = await fetch(`/tasks/${taskId}`);
+                if (!res.ok) throw new Error('Failed to load task');
+                const task = await res.json();
+                tasks[taskId] = task;
+                currentTaskId = taskId;
+                
+                // Subscribe to WebSocket updates
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'subscribe', task_id: taskId }));
                 }
                 
-                const response = await fetch('/tasks/stream', {
+                renderTaskList();
+                renderTaskView(task);
+            } catch (err) {
+                console.error('Failed to load task:', err);
+            }
+        }
+        
+        async function submitTask() {
+            const input = document.getElementById('task-input');
+            const request = input.value.trim();
+            if (!request || isSubmitting) return;
+            
+            isSubmitting = true;
+            document.getElementById('submit-btn').disabled = true;
+            input.disabled = true;
+            
+            try {
+                const payload = { request };
+                if (sessionId) payload.session_id = sessionId;
+                
+                const res = await fetch('/tasks/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
                 });
-
-                if (!response.ok) {
-                    const err = await response.json();
+                
+                if (!res.ok) {
+                    const err = await res.json();
                     throw new Error(err.detail || 'Request failed');
                 }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let plan = null;
-                let stepStatuses = {};
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n\n');
-                    buffer = lines.pop(); // Keep incomplete chunk
-
-                    for (const line of lines) {
-                        if (!line.startsWith('data: ')) continue;
-                        const data = JSON.parse(line.slice(6));
-
-                        if (data.type === 'session') {
-                            // Store session ID for future requests
-                            sessionId = data.session_id;
-                        } else if (data.type === 'plan') {
-                            plan = data.plan;
-                            content.innerHTML = renderPlan(plan, stepStatuses);
-                        } else if (data.type === 'progress') {
-                            stepStatuses[data.step_id] = data.status;
-                            if (plan) {
-                                content.innerHTML = renderPlan(plan, stepStatuses);
-                            }
-                        } else if (data.type === 'result') {
-                            // Update final statuses
-                            for (const [id, res] of Object.entries(data.results)) {
-                                stepStatuses[id] = res.status;
-                            }
-                            if (plan) {
-                                content.innerHTML = renderPlan(plan, stepStatuses);
-                            }
-                            // Show errors if any
-                            const errors = Object.entries(data.results)
-                                .filter(([_, r]) => r.error)
-                                .map(([id, r]) => `<strong>${id}:</strong> ${r.error}`);
-                            if (errors.length > 0) {
-                                content.innerHTML += `<div class="error-box">${errors.join('<br>')}</div>`;
-                            }
-                        } else if (data.type === 'summary') {
-                            content.innerHTML += `
-                                <div class="plan-section">
-                                    <h3>Summary</h3>
-                                    <div class="summary-text">${escapeHtml(data.summary)}</div>
-                                </div>
-                            `;
-                        } else if (data.type === 'error') {
-                            content.innerHTML = `<div class="error-box">${escapeHtml(data.message)}</div>`;
-                        }
-                    }
-                }
+                
+                const data = await res.json();
+                sessionId = data.session_id;
+                localStorage.setItem('sessionId', sessionId);
+                
+                // Load the new task
+                await loadTask(data.task_id);
+                input.value = '';
+                
             } catch (err) {
-                content.innerHTML = `<div class="error-box">Error: ${escapeHtml(err.message)}</div>`;
+                alert('Error: ' + err.message);
             } finally {
-                isRunning = false;
-                submitBtn.disabled = false;
-                inputEl.disabled = false;
-                inputEl.focus();
+                isSubmitting = false;
+                document.getElementById('submit-btn').disabled = false;
+                input.disabled = false;
+                input.focus();
             }
         }
-
-        function addMessage(role, text) {
-            const div = document.createElement('div');
-            div.className = `message ${role}`;
-            div.innerHTML = `
-                <div class="message-label">${role === 'user' ? 'You' : 'LocalCowork'}</div>
-                <div class="message-content">${escapeHtml(text)}</div>
-            `;
-            messagesEl.appendChild(div);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-            return div;
+        
+        async function approveTask(taskId, approved) {
+            try {
+                const res = await fetch('/tasks/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_id: taskId, approved }),
+                });
+                
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Request failed');
+                }
+                
+                await loadTask(taskId);
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
         }
-
-        function renderPlan(plan, statuses) {
-            const steps = plan.steps.map(step => {
-                const status = statuses[step.id] || 'pending';
-                const desc = step.description || step.action;
-                return `
-                    <div class="step ${status}">
-                        <span class="step-status"></span>
-                        <span class="step-id">${escapeHtml(step.id)}</span>
-                        <span class="step-desc">${escapeHtml(desc)}</span>
+        
+        async function cancelTask(taskId) {
+            try {
+                const res = await fetch(`/tasks/${taskId}/cancel`, { method: 'POST' });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Request failed');
+                }
+                await loadTask(taskId);
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+        
+        // ===== Rendering =====
+        function renderTaskList() {
+            const list = document.getElementById('task-list');
+            const taskArray = Object.values(tasks).sort((a, b) => 
+                new Date(b.created_at) - new Date(a.created_at)
+            );
+            
+            let html = '<div class="task-list-header">Recent Tasks</div>';
+            
+            if (taskArray.length === 0) {
+                html += '<div style="padding: 1rem; color: var(--text-dim); font-size: 0.85rem;">No tasks yet</div>';
+            } else {
+                for (const task of taskArray.slice(0, 50)) {
+                    const isActive = task.id === currentTaskId;
+                    const time = formatTime(task.created_at);
+                    html += `
+                        <div class="task-item ${isActive ? 'active' : ''}" onclick="loadTask('${task.id}')">
+                            <div class="task-item-title">${escapeHtml(task.request)}</div>
+                            <div class="task-item-meta">
+                                <span class="task-status ${task.state}">${formatState(task.state)}</span>
+                                <span>${time}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            list.innerHTML = html;
+        }
+        
+        function renderTaskView(task) {
+            const view = document.getElementById('task-view');
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) emptyState.remove();
+            
+            let html = `
+                <div class="task-header">
+                    <h2>${escapeHtml(task.request)}</h2>
+                    <div class="task-header-meta">
+                        <span class="task-status ${task.state}">${formatState(task.state)}</span>
+                        <span>Created ${formatTime(task.created_at)}</span>
+                        ${task.workspace_path ? `<span>📁 ${task.workspace_path}</span>` : ''}
+                    </div>
+                </div>
+                <div class="task-body">
+            `;
+            
+            // Approval banner
+            if (task.state === 'awaiting_approval') {
+                html += `
+                    <div class="approval-banner">
+                        <h3>⏳ Awaiting Approval</h3>
+                        <p>Review the plan below. Click "Approve" to execute or "Reject" to cancel.</p>
+                        <div class="approval-actions">
+                            <button class="btn btn-approve" onclick="approveTask('${task.id}', true)">✓ Approve & Run</button>
+                            <button class="btn btn-reject" onclick="approveTask('${task.id}', false)">✗ Reject</button>
+                        </div>
                     </div>
                 `;
-            }).join('');
-
-            // Count completed and failed steps
-            const doneCount = Object.values(statuses).filter(s => s === 'success').length;
-            const errorCount = Object.values(statuses).filter(s => s === 'error').length;
-            const runningCount = Object.values(statuses).filter(s => s === 'running' || s === 'starting').length;
-            const totalSteps = plan.steps.length;
-            const allDone = (doneCount + errorCount) === totalSteps && totalSteps > 0;
-            const isRunning = runningCount > 0 || (!allDone && (doneCount > 0 || errorCount > 0));
-            
-            // Build status summary with spinner
-            let statusSummary = '<span class="step-count">';
-            if (isRunning) {
-                statusSummary += `<span class="in-progress"><span class="mini-spinner"></span>${doneCount}/${totalSteps}</span>`;
-            } else if (allDone) {
-                if (doneCount > 0) statusSummary += `<span class="done">✓${doneCount}</span>`;
-                if (errorCount > 0) statusSummary += ` <span class="error">✗${errorCount}</span>`;
             }
-            statusSummary += '</span>';
-
-            // Accordion is always closed by default - user can click to expand
-            return `
-                <div class="plan-section">
-                    <div class="accordion-header" onclick="toggleAccordion(this)">
-                        <h3>Plan (${totalSteps} steps) ${statusSummary}</h3>
-                        <span class="accordion-toggle">▼</span>
+            
+            // Cancel button for running tasks
+            if (task.state === 'executing' || task.state === 'approved') {
+                html += `
+                    <div style="margin-bottom: 1rem;">
+                        <button class="btn btn-cancel" onclick="cancelTask('${task.id}')">Cancel Task</button>
                     </div>
-                    <div class="accordion-content">
-                        ${steps}
+                `;
+            }
+            
+            // Error card
+            if (task.error) {
+                html += `
+                    <div class="error-card">
+                        <h3>❌ Error</h3>
+                        <p>${escapeHtml(task.error)}</p>
+                    </div>
+                `;
+            }
+            
+            // Summary card
+            if (task.summary && (task.state === 'completed' || task.state === 'failed')) {
+                html += `
+                    <div class="summary-card">
+                        <h3>✅ Summary</h3>
+                        <div class="summary-text">${escapeHtml(task.summary)}</div>
+                    </div>
+                `;
+            }
+            
+            // Plan card
+            if (task.plan) {
+                html += renderPlanCard(task.plan, task.step_results || {}, task.state);
+            }
+            
+            // Workspace files
+            if (task.workspace_files) {
+                const hasFiles = task.workspace_files.input?.length > 0 || task.workspace_files.output?.length > 0;
+                if (hasFiles) {
+                    html += renderWorkspaceCard(task.workspace_files);
+                }
+            }
+            
+            html += '</div>';
+            view.innerHTML = html;
+        }
+        
+        function renderPlanCard(plan, stepResults, taskState) {
+            const steps = plan.steps || [];
+            let html = `
+                <div class="plan-card">
+                    <h3>📋 Execution Plan (${steps.length} steps)</h3>
+            `;
+            
+            for (const step of steps) {
+                const result = stepResults[step.id];
+                let status = 'pending';
+                if (result) {
+                    status = result.status === 'success' ? 'success' : 
+                             result.status === 'error' ? 'error' : 
+                             result.status === 'skipped' ? 'skipped' : 'pending';
+                } else if (taskState === 'executing') {
+                    status = 'pending';
+                }
+                
+                const icon = status === 'success' ? '✓' : 
+                            status === 'error' ? '✗' : 
+                            status === 'running' ? '▶' :
+                            status === 'skipped' ? '⊘' : '○';
+                
+                html += `
+                    <div class="step" id="step-${step.id}">
+                        <div class="step-icon ${status}">${icon}</div>
+                        <div class="step-content">
+                            <div class="step-title">${escapeHtml(step.id)}</div>
+                            <div class="step-desc">${escapeHtml(step.description || '')}</div>
+                            <div class="step-action">${escapeHtml(step.action)}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            return html;
+        }
+        
+        function renderWorkspaceCard(files) {
+            let html = `
+                <div class="workspace-card">
+                    <h3>📁 Workspace Files</h3>
+                    <div class="file-list">
+            `;
+            
+            if (files.input?.length > 0) {
+                html += `
+                    <div class="file-section">
+                        <div class="file-section-title">Input</div>
+                        ${files.input.map(f => `<div class="file-item"><span class="file-icon">📄</span>${escapeHtml(f)}</div>`).join('')}
+                    </div>
+                `;
+            }
+            
+            if (files.output?.length > 0) {
+                html += `
+                    <div class="file-section">
+                        <div class="file-section-title">Output</div>
+                        ${files.output.map(f => `<div class="file-item"><span class="file-icon">📄</span>${escapeHtml(f)}</div>`).join('')}
+                    </div>
+                `;
+            }
+            
+            html += '</div></div>';
+            return html;
+        }
+        
+        function updateStepStatus(stepId, status) {
+            const stepEl = document.getElementById(`step-${stepId}`);
+            if (!stepEl) return;
+            
+            const iconEl = stepEl.querySelector('.step-icon');
+            if (!iconEl) return;
+            
+            iconEl.className = `step-icon ${status}`;
+            iconEl.textContent = status === 'success' ? '✓' : 
+                                status === 'error' ? '✗' : 
+                                status === 'running' || status === 'starting' ? '▶' : '○';
+        }
+        
+        // ===== Utilities =====
+        function newTask() {
+            currentTaskId = null;
+            renderTaskList();
+            document.getElementById('task-view').innerHTML = `
+                <div class="empty-state">
+                    <h2>What can I help you with?</h2>
+                    <p>Describe a task in plain English. I'll create a plan and ask for your approval before executing.</p>
+                    <div class="examples">
+                        <button class="example-btn" onclick="useExample(this)">Organize my Downloads folder</button>
+                        <button class="example-btn" onclick="useExample(this)">Find all PDFs in ~/Documents</button>
+                        <button class="example-btn" onclick="useExample(this)">List files modified today</button>
                     </div>
                 </div>
             `;
+            document.getElementById('task-input').focus();
         }
-
-        function toggleAccordion(header) {
-            const toggle = header.querySelector('.accordion-toggle');
-            const content = header.nextElementSibling;
-            toggle.classList.toggle('open');
-            content.classList.toggle('open');
+        
+        function useExample(btn) {
+            document.getElementById('task-input').value = btn.textContent;
+            document.getElementById('task-input').focus();
         }
-
+        
+        function formatState(state) {
+            const labels = {
+                'pending': 'Pending',
+                'planning': 'Planning',
+                'awaiting_approval': 'Awaiting Approval',
+                'approved': 'Approved',
+                'executing': 'Running',
+                'completed': 'Completed',
+                'failed': 'Failed',
+                'rejected': 'Rejected',
+                'cancelled': 'Cancelled',
+            };
+            return labels[state] || state;
+        }
+        
+        function formatTime(dateStr) {
+            const date = new Date(dateStr);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            
+            if (diffMins < 1) return 'just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+            return date.toLocaleDateString();
+        }
+        
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
+        
+        // ===== Event Listeners =====
+        document.getElementById('task-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !isSubmitting) {
+                submitTask();
+            }
+        });
+        
+        // ===== Initialize =====
+        connectWebSocket();
+        fetchTasks();
     </script>
 </body>
 </html>
