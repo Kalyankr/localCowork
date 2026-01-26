@@ -58,6 +58,17 @@ def get_sandbox() -> Sandbox:
     return Sandbox()
 
 
+@lru_cache(maxsize=1)
+def get_task_manager():
+    """
+    Get the singleton task manager instance.
+    
+    Uses lru_cache to ensure only one instance is created.
+    """
+    from agent.orchestrator.task_manager import TaskManager
+    return TaskManager()
+
+
 def get_dependencies() -> Tuple[ToolRegistry, Sandbox]:
     """
     Get both tool registry and sandbox as a tuple.
@@ -74,4 +85,6 @@ def __getattr__(name: str):
         return get_tool_registry()
     if name == "sandbox":
         return get_sandbox()
+    if name == "task_manager":
+        return get_task_manager()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
