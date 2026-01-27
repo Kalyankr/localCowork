@@ -16,14 +16,9 @@ from typing import Optional, List, Dict, Any
 import ollama
 from ollama import ResponseError, RequestError
 
-from agent.config import settings
+from agent.config import get_settings
 
 logger = logging.getLogger(__name__)
-
-# Configuration from centralized settings
-MODEL = settings.ollama_model
-TIMEOUT = settings.ollama_timeout
-MAX_JSON_RETRIES = settings.max_json_retries
 
 
 class LLMError(Exception):
@@ -39,11 +34,12 @@ def _get_client() -> ollama.Client:
     """Get or create the Ollama client singleton."""
     global _client
     if _client is None:
+        s = get_settings()
         # Extract host from the old URL format if needed
-        host = settings.ollama_url.replace("/api/generate", "").replace("/api/chat", "")
+        host = s.ollama_url.replace("/api/generate", "").replace("/api/chat", "")
         if host.endswith("/"):
             host = host[:-1]
-        _client = ollama.Client(host=host, timeout=TIMEOUT)
+        _client = ollama.Client(host=host, timeout=s.ollama_timeout)
     return _client
 
 
@@ -63,12 +59,13 @@ def call_llm(prompt: str, force_json: bool = False) -> str:
     """
     try:
         client = _get_client()
-        logger.debug(f"Calling LLM with model={MODEL}, force_json={force_json}")
+        s = get_settings()
+        logger.debug(f"Calling LLM with model={s.ollama_model}, force_json={force_json}")
         
         kwargs = {
-            "model": MODEL,
+            "model": s.ollama_model,
             "prompt": prompt,
-            "options": {"num_predict": settings.max_tokens},
+            "options": {"num_predict": s.max_tokens},
         }
         
         # Use Ollama's native JSON mode if requested
@@ -103,13 +100,14 @@ def call_llm_chat(messages: List[Dict[str, str]], model: str = None) -> str:
     """
     try:
         client = _get_client()
-        active_model = model or MODEL
+        s = get_settings()
+        active_model = model or s.ollama_model
         logger.debug(f"Calling LLM chat with model={active_model}, {len(messages)} messages")
         
         response = client.chat(
             model=active_model,
             messages=messages,
-            options={"num_predict": settings.max_tokens},
+            options={"num_predict": s.max_tokens},
         )
         
         return response.message.content
