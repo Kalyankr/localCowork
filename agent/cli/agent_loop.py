@@ -207,6 +207,56 @@ Be concise and conversational. Focus on what was achieved."""
         summary = call_llm(prompt)
     
     _show_response(summary, model)
+    
+    # Show actual data from context if there's meaningful output
+    _show_context_data(state.context)
+
+
+def _show_context_data(context: dict):
+    """Display actual data collected by the agent."""
+    if not context:
+        return
+    
+    # Filter out non-displayable context
+    displayable = {}
+    for key, value in context.items():
+        if value is None or value == "" or value == []:
+            continue
+        displayable[key] = value
+    
+    if not displayable:
+        return
+    
+    console.print()
+    console.print("  [dim]─── Data ───[/dim]")
+    
+    for key, value in displayable.items():
+        # Format the value based on type
+        if isinstance(value, list):
+            if len(value) <= 20:
+                for item in value:
+                    console.print(f"  [dim]•[/dim] {item}")
+            else:
+                for item in value[:20]:
+                    console.print(f"  [dim]•[/dim] {item}")
+                console.print(f"  [dim]... and {len(value) - 20} more[/dim]")
+        elif isinstance(value, dict):
+            import json
+            formatted = json.dumps(value, indent=2, default=str)
+            for line in formatted.split("\n")[:30]:
+                console.print(f"  [dim]{line}[/dim]")
+        elif isinstance(value, str):
+            # Multi-line strings
+            lines = value.strip().split("\n")
+            if len(lines) <= 30:
+                for line in lines:
+                    console.print(f"  {line}")
+            else:
+                for line in lines[:30]:
+                    console.print(f"  {line}")
+                console.print(f"  [dim]... {len(lines) - 30} more lines[/dim]")
+        else:
+            console.print(f"  {value}")
 
 
 def _show_response(text: str, model: str):
