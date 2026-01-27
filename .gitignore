@@ -11,3 +11,4 @@ wheels/
 
 # Documentation (local only)
 docs/
+.env
