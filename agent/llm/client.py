@@ -136,12 +136,14 @@ def call_llm_json(prompt: str) -> dict:
         LLMError: If JSON parsing fails after all retries
     """
     last_error = None
+    s = get_settings()
+    max_retries = s.max_json_retries
     
-    for attempt in range(MAX_JSON_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         try:
             current_prompt = prompt
             if attempt > 0:
-                logger.info(f"JSON retry attempt {attempt + 1}/{MAX_JSON_RETRIES + 1}")
+                logger.info(f"JSON retry attempt {attempt + 1}/{max_retries + 1}")
                 current_prompt = prompt + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
             
             # Use Ollama's native JSON mode for reliable output
@@ -157,11 +159,11 @@ def call_llm_json(prompt: str) -> dict:
         except (json.JSONDecodeError, ValueError) as e:
             last_error = e
             logger.warning(f"JSON parse failed (attempt {attempt + 1}): {e}")
-            if attempt < MAX_JSON_RETRIES:
+            if attempt < max_retries:
                 continue
             else:
                 raise LLMError(
-                    f"Failed to get valid JSON after {MAX_JSON_RETRIES + 1} attempts. "
+                    f"Failed to get valid JSON after {max_retries + 1} attempts. "
                     "The AI model may be having trouble understanding the request. "
                     "Please try rephrasing."
                 )
