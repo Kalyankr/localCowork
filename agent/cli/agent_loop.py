@@ -228,8 +228,8 @@ def _process_input_agentic(user_input: str, model: str, conversation_history: li
         
         return Panel(
             content,
-            border_style="bright_black",
-            box=box.ROUNDED,
+            border_style="dim",
+            box=box.SIMPLE,
             padding=(0, 1),
             width=width,
         )
@@ -263,7 +263,6 @@ def _process_input_agentic(user_input: str, model: str, conversation_history: li
         start_time = time.time()
         
         # Simple processing indicator
-        console.print("  [dim]───[/dim]")
         console.print()
         
         # Run agent with live display
@@ -290,7 +289,7 @@ def _process_input_agentic(user_input: str, model: str, conversation_history: li
         elapsed = time.time() - start_time
         
         console.print()
-        console.print(f"  [dim]─── completed in {format_duration(elapsed)} ───[/dim]")
+        console.print(f"  [dim]✓ Done in {format_duration(elapsed)}[/dim]")
         console.print()
         
         # Get the response for history
@@ -437,11 +436,14 @@ def _show_context_data(context: dict):
 
 
 def _show_response(text: str, model: str):
-    """Display agent response - clean like Gemini/Copilot."""
+    """Display agent response with clean formatting."""
     width = _get_width()
     
+    console.print()
+    console.print(f"  [bold cyan]◆[/bold cyan] [bold white]LocalCowork[/bold white]")
+    console.print()
+    
     # Clean and wrap the text properly
-    lines = []
     for line in text.split("\n"):
         if len(line) > width - 8:
             # Word wrap long lines
@@ -449,58 +451,63 @@ def _show_response(text: str, model: str):
             current = ""
             for word in words:
                 if len(current) + len(word) + 1 > width - 8:
-                    lines.append(current)
+                    console.print(f"    {current}")
                     current = word
                 else:
                     current = f"{current} {word}" if current else word
             if current:
-                lines.append(current)
+                console.print(f"    {current}")
         else:
-            lines.append(line)
+            console.print(f"    {line}")
     
-    # Print response with simple formatting
-    console.print()
-    console.print(f"  [bold cyan]◆[/bold cyan] [bold]Response[/bold]")
-    console.print()
-    for line in lines:
-        console.print(f"    {line}")
     console.print()
 
 
 def _show_welcome(model: str):
-    """Show welcome screen - clean and minimal like Gemini/Copilot."""
+    """Show welcome screen - clean and minimal."""
+    width = _get_width()
+    
     console.print()
     console.print()
-    console.print("  [bold cyan]██╗     [/bold cyan] [bold white]LocalCowork[/bold white]")
-    console.print("  [bold cyan]██║     [/bold cyan] [dim]Pure Agentic AI Assistant[/dim]")
+    # Clean logo
+    console.print("  [bold cyan]██╗     [/bold cyan][bold white]LocalCowork[/bold white] [dim]v0.3[/dim]")
+    console.print("  [bold cyan]██║     [/bold cyan][dim]Pure Agentic AI Assistant[/dim]")
     console.print("  [bold cyan]███████╗[/bold cyan]")
     console.print()
-    console.print(f"  [dim]Model:[/dim] [cyan]{model}[/cyan]")
-    console.print(f"  [dim]Tools:[/dim] [green]shell[/green] [dim]+[/dim] [blue]python[/blue]")
+    
+    # Status bar
+    console.print(f"  [green]●[/green] [dim]Connected to[/dim] [cyan]{model}[/cyan]")
     console.print()
-    console.print("  [bright_black]──────────────────────────────────────────────────[/bright_black]")
+    console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
     console.print()
     console.print("  [white]How can I help you today?[/white]")
+    console.print("  [dim]Type a request, or /help for commands.[/dim]")
     console.print()
-    print_padding(1)
 
 
 def _get_input() -> str:
-    """Get user input with solid rectangle box."""
+    """Get user input with complete box visible before typing."""
     width = _get_width()
     inner = width - 6
     
     try:
         console.print()
+        # Print the complete box first
         console.print(f"  [cyan]┌{'─' * inner}┐[/cyan]")
-        console.print(f"  [cyan]│[/cyan] [bold green]❯[/bold green] ", end="")
-        
-        user_input = console.input("")
-        
+        console.print(f"  [cyan]│[/cyan]" + " " * inner + "[cyan]│[/cyan]")
         console.print(f"  [cyan]└{'─' * inner}┘[/cyan]")
+        
+        # Move cursor up 2 lines and to the input position
+        print("\033[2A\033[5C", end="", flush=True)
+        
+        user_input = console.input("[bold magenta]>[/bold magenta] ")
+        
+        # Move cursor down to after the box
+        print("\033[2B", end="", flush=True)
         console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
+        print("\033[2B", end="", flush=True)  # Move down on interrupt too
         console.print()
         raise
 
@@ -510,43 +517,32 @@ def _show_help():
     width = _get_width()
     
     console.print()
-    console.print(Rule("[bold cyan] Help [/bold cyan]", style="dim"))
+    console.print("  [bold cyan]◆[/bold cyan] [bold white]Help[/bold white]")
     console.print()
     
-    console.print("  [bold white]Examples[/bold white]")
-    console.print()
-    console.print("    [green]❯[/green] list files in my home directory")
-    console.print("    [green]❯[/green] find all python files larger than 1MB")
-    console.print("    [green]❯[/green] create a backup of my documents folder")
-    console.print("    [green]❯[/green] analyze this CSV and show statistics")
-    console.print()
-    console.print("  [dim]I'll figure out how to accomplish your request[/dim]")
-    console.print("  [dim]using shell commands and Python.[/dim]")
+    console.print("  [bold]Examples[/bold]")
+    console.print("    [dim]•[/dim] list files in my home directory")
+    console.print("    [dim]•[/dim] find all python files larger than 1MB")
+    console.print("    [dim]•[/dim] create a backup of my documents folder")
+    console.print("    [dim]•[/dim] analyze this CSV and show statistics")
     console.print()
     
-    console.print("  [bold white]Commands[/bold white]")
-    console.print()
-    console.print("    [cyan]/clear[/cyan]   Reset screen and conversation")
-    console.print("    [cyan]/help[/cyan]    Show this help message")
-    console.print("    [cyan]/quit[/cyan]    Exit LocalCowork")
+    console.print("  [bold]Commands[/bold]")
+    console.print("    [cyan]/clear[/cyan]  [dim]Reset screen and conversation[/dim]")
+    console.print("    [cyan]/help[/cyan]   [dim]Show this help[/dim]")
+    console.print("    [cyan]/quit[/cyan]   [dim]Exit[/dim]")
     console.print()
     
-    console.print("  [bold white]Tips[/bold white]")
-    console.print()
+    console.print("  [bold]Tips[/bold]")
     console.print("    [dim]• Be specific about what you want[/dim]")
     console.print("    [dim]• Mention file paths when relevant[/dim]")
     console.print("    [dim]• I remember context from this session[/dim]")
-    
-    print_padding(2)
+    console.print()
 
 
 def _show_goodbye():
     """Show a clean goodbye message."""
+    width = _get_width()
     console.print()
-    console.print("  [bright_black]──────────────────────────────────────────[/bright_black]")
+    console.print("  [dim]Session ended. Goodbye![/dim]")
     console.print()
-    console.print("  [dim]Thanks for using[/dim] [bold cyan]LocalCowork[/bold cyan]")
-    console.print("  [dim]Session ended.[/dim]")
-    console.print()
-    console.print("  [bright_black]──────────────────────────────────────────[/bright_black]")
-    print_padding(2)
