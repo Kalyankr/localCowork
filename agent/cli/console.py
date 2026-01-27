@@ -4,6 +4,8 @@ from rich.console import Console
 from rich.theme import Theme
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
+from rich.spinner import Spinner
 from rich import box
 
 # Custom theme for consistent styling
@@ -14,11 +16,17 @@ THEME = Theme({
     "error": "red",
     "dim": "dim",
     "highlight": "bold cyan",
+    "muted": "bright_black",
+    "accent": "magenta",
     "step.pending": "dim",
-    "step.running": "yellow",
+    "step.running": "bold yellow",
     "step.success": "green",
     "step.error": "red",
     "step.skipped": "dim",
+    "input.border": "bright_black",
+    "input.prompt": "bold green",
+    "thinking": "bold yellow",
+    "executing": "bold cyan",
 })
 
 # Global console instance
@@ -70,6 +78,35 @@ def print_warning(message: str):
 def print_info(message: str):
     """Print an info message."""
     console.print(f"[info]{Icons.ARROW}[/info] {message}")
+
+
+def print_padding(lines: int = 2):
+    """Add vertical padding at bottom of terminal."""
+    console.print("\\n" * (lines - 1))
+
+
+def format_duration(seconds: float) -> str:
+    """Format duration in a human-readable way."""
+    if seconds < 1:
+        return f"{int(seconds * 1000)}ms"
+    elif seconds < 60:
+        return f"{seconds:.1f}s"
+    else:
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins}m {secs}s"
+
+
+def create_input_panel(prompt: str = "❯", placeholder: str = "") -> Panel:
+    """Create a styled input panel."""
+    return Panel(
+        Text(placeholder, style="dim") if placeholder else Text(""),
+        title=f"[input.prompt]{prompt}[/input.prompt]",
+        title_align="left",
+        border_style="input.border",
+        padding=(0, 1),
+        box=box.ROUNDED,
+    )
 
 
 def create_status_table(show_header: bool = True) -> Table:

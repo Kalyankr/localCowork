@@ -1,20 +1,20 @@
-"""LocalCowork API Server with WebSocket support, approval flow, and task history."""
+"""LocalCowork API Server - Pure Agentic Architecture.
+
+All task execution uses the ReAct agent (shell + python).
+"""
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from agent.orchestrator.models import (
-    TaskRequest, TaskResponse, TaskApproval, TaskSummary, TaskDetail,
-    ConversationMessage, Plan, StepResult, TaskState,
+    TaskRequest, TaskSummary, TaskDetail, ConversationMessage, TaskState,
+    WebSocketMessage, WSMessageType,
 )
-from agent.orchestrator.planner import generate_plan, summarize_results
-from agent.orchestrator.executor import Executor
+from pydantic import ValidationError
 from agent.orchestrator.deps import get_tool_registry, get_sandbox, get_task_manager
-from agent.orchestrator.task_manager import TaskState as TMState, TaskEvent
+from agent.orchestrator.task_manager import TaskState as TMState
 from agent.config import settings
 from agent.llm.client import LLMError
 import uuid
-import json
-import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, List, Set, Optional
@@ -25,313 +25,185 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="LocalCowork API",
-    description="AI-powered local task automation with approval workflows",
-    version="0.2.0",
+    description="Pure agentic local automation - shell + python",
+    version="0.3.0",
 )
 
-# Use shared dependencies
+# Shared dependencies
 tool_registry = get_tool_registry()
 sandbox = get_sandbox()
 task_manager = get_task_manager()
 
-# Static files directory
+# Static files
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Conversation history storage (in-memory, keyed by session_id)
+# Session storage
 conversation_history: Dict[str, List[ConversationMessage]] = defaultdict(list)
 conversation_timestamps: Dict[str, float] = {}
 
-# WebSocket connection manager
-class ConnectionManager:
-    """Manages WebSocket connections for real-time updates."""
-    
-    def __init__(self):
-        # All active connections
-        self.active_connections: Set[WebSocket] = set()
-        # Task-specific subscriptions: task_id -> set of websockets
-        self.task_subscriptions: Dict[str, Set[WebSocket]] = defaultdict(set)
-    
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        logger.info(f"WebSocket connected. Total: {len(self.active_connections)}")
-    
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.discard(websocket)
-        # Remove from all task subscriptions
-        for subscribers in self.task_subscriptions.values():
-            subscribers.discard(websocket)
-        logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
-    
-    def subscribe_to_task(self, websocket: WebSocket, task_id: str):
-        self.task_subscriptions[task_id].add(websocket)
-    
-    def unsubscribe_from_task(self, websocket: WebSocket, task_id: str):
-        self.task_subscriptions[task_id].discard(websocket)
-    
-    async def broadcast_to_task(self, task_id: str, message: dict):
-        """Send message to all subscribers of a task."""
-        subscribers = self.task_subscriptions.get(task_id, set())
-        dead_connections = set()
-        
-        for websocket in subscribers:
-            try:
-                await websocket.send_json(message)
-            except Exception:
-                dead_connections.add(websocket)
-        
-        # Clean up dead connections
-        for ws in dead_connections:
-            self.disconnect(ws)
-    
-    async def broadcast_all(self, message: dict):
-        """Broadcast to all connected clients."""
-        dead_connections = set()
-        
-        for websocket in self.active_connections:
-            try:
-                await websocket.send_json(message)
-            except Exception:
-                dead_connections.add(websocket)
-        
-        for ws in dead_connections:
-            self.disconnect(ws)
-
-
-ws_manager = ConnectionManager()
-
-
-# Session timeout from config
 SESSION_TIMEOUT = settings.session_timeout
-MAX_HISTORY_MESSAGES = settings.max_history_messages
+MAX_HISTORY = settings.max_history_messages
 
 
-def cleanup_old_sessions():
-    """Remove sessions older than SESSION_TIMEOUT."""
-    current_time = time.time()
-    expired = [
-        sid for sid, ts in conversation_timestamps.items()
-        if current_time - ts > SESSION_TIMEOUT
-    ]
-    for sid in expired:
-        conversation_history.pop(sid, None)
-        conversation_timestamps.pop(sid, None)
+# =============================================================================
+# WebSocket Manager
+# =============================================================================
+
+class ConnectionManager:
+    def __init__(self):
+        self.connections: Set[WebSocket] = set()
+        self.task_subs: Dict[str, Set[WebSocket]] = defaultdict(set)
+    
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.connections.add(ws)
+    
+    def disconnect(self, ws: WebSocket):
+        self.connections.discard(ws)
+        for subs in self.task_subs.values():
+            subs.discard(ws)
+    
+    def subscribe(self, ws: WebSocket, task_id: str):
+        self.task_subs[task_id].add(ws)
+    
+    async def broadcast(self, task_id: str, msg: WebSocketMessage):
+        """Broadcast a typed message to all subscribers of a task."""
+        dead = set()
+        for conn in self.task_subs.get(task_id, set()):
+            try:
+                await conn.send_json(msg.model_dump())
+            except:
+                dead.add(conn)
+        for conn in dead:
+            self.disconnect(conn)
+    
+    async def broadcast_all(self, msg: WebSocketMessage):
+        """Broadcast a typed message to all connected clients."""
+        dead = set()
+        for conn in self.connections:
+            try:
+                await conn.send_json(msg.model_dump())
+            except:
+                dead.add(conn)
+        for conn in dead:
+            self.disconnect(conn)
+    
+    async def send_step_output(self, task_id: str, step: str, output: any):
+        """Send step output to task subscribers."""
+        await self.broadcast(task_id, WebSocketMessage.step_output(task_id, step, output))
+    
+    async def send_task_complete(self, task_id: str, summary: str):
+        """Notify subscribers that a task completed."""
+        await self.broadcast(task_id, WebSocketMessage.task_complete(task_id, summary))
+    
+    async def send_task_error(self, task_id: str, error: str):
+        """Notify subscribers of a task error."""
+        await self.broadcast(task_id, WebSocketMessage.task_error(task_id, error))
 
 
-def get_session_history(session_id: str) -> List[ConversationMessage]:
-    """Get conversation history for a session."""
-    cleanup_old_sessions()
+ws = ConnectionManager()
+
+
+# =============================================================================
+# Session Helpers
+# =============================================================================
+
+def cleanup_sessions():
+    now = time.time()
+    expired = [s for s, t in conversation_timestamps.items() if now - t > SESSION_TIMEOUT]
+    for s in expired:
+        conversation_history.pop(s, None)
+        conversation_timestamps.pop(s, None)
+
+
+def get_history(session_id: str) -> List[ConversationMessage]:
+    cleanup_sessions()
     return conversation_history.get(session_id, [])
 
 
-def add_to_history(session_id: str, role: str, content: str):
-    """Add a message to conversation history."""
-    conversation_history[session_id].append(
-        ConversationMessage(role=role, content=content)
-    )
+def add_message(session_id: str, role: str, content: str):
+    conversation_history[session_id].append(ConversationMessage(role=role, content=content))
     conversation_timestamps[session_id] = time.time()
-    
-    if len(conversation_history[session_id]) > MAX_HISTORY_MESSAGES:
-        conversation_history[session_id] = conversation_history[session_id][-MAX_HISTORY_MESSAGES:]
+    if len(conversation_history[session_id]) > MAX_HISTORY:
+        conversation_history[session_id] = conversation_history[session_id][-MAX_HISTORY:]
 
 
-# ============================================================================
+# =============================================================================
 # WebSocket Endpoint
-# ============================================================================
+# =============================================================================
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time task updates."""
-    await ws_manager.connect(websocket)
+    """WebSocket endpoint for real-time task updates.
     
+    Supported messages:
+    - {"type": "subscribe", "task_id": "..."} - Subscribe to task updates
+    - {"type": "unsubscribe", "task_id": "..."} - Unsubscribe from task
+    - {"type": "ping"} - Keep-alive ping
+    """
+    await ws.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_json()
-            msg_type = data.get("type")
-            task_id = data.get("task_id")
-            
-            if msg_type == "subscribe" and task_id:
-                ws_manager.subscribe_to_task(websocket, task_id)
-                await websocket.send_json({
-                    "type": "subscribed",
-                    "task_id": task_id,
-                })
-            
-            elif msg_type == "unsubscribe" and task_id:
-                ws_manager.unsubscribe_from_task(websocket, task_id)
-                await websocket.send_json({
-                    "type": "unsubscribed", 
-                    "task_id": task_id,
-                })
-            
-            elif msg_type == "ping":
-                await websocket.send_json({"type": "pong"})
-    
+            raw_data = await websocket.receive_json()
+            try:
+                msg = WebSocketMessage.model_validate(raw_data)
+                
+                if msg.type == WSMessageType.SUBSCRIBE:
+                    if msg.task_id:
+                        ws.subscribe(websocket, msg.task_id)
+                        response = WebSocketMessage.subscribed(msg.task_id)
+                        await websocket.send_json(response.model_dump())
+                    else:
+                        error = WebSocketMessage.error("task_id required for subscribe")
+                        await websocket.send_json(error.model_dump())
+                
+                elif msg.type == WSMessageType.UNSUBSCRIBE:
+                    if msg.task_id:
+                        ws.task_subs.get(msg.task_id, set()).discard(websocket)
+                        await websocket.send_json({"type": "unsubscribed", "task_id": msg.task_id})
+                
+                elif msg.type == WSMessageType.PING:
+                    response = WebSocketMessage.pong()
+                    await websocket.send_json(response.model_dump())
+                    
+            except ValidationError as e:
+                error = WebSocketMessage.error(f"Invalid message format: {e.error_count()} errors")
+                await websocket.send_json(error.model_dump())
+                
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        ws.disconnect(websocket)
 
 
-# ============================================================================
-# REST Endpoints
-# ============================================================================
+# =============================================================================
+# Main Endpoints
+# =============================================================================
 
 @app.get("/")
 async def root():
-    """Serve the web UI."""
+    """Serve web UI."""
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.post("/tasks/create")
-async def create_task(request: TaskRequest):
-    """Create a new task and generate a plan (awaits approval by default)."""
-    session_id = request.session_id or str(uuid.uuid4())
-    
-    # Create task in manager
-    task = task_manager.create_task(request.request, session_id)
-    
-    # Update state to planning
-    task_manager.update_state(task.id, TMState.PLANNING)
-    
-    # Add user message to history
-    add_to_history(session_id, "user", request.request)
-    
-    try:
-        # Get conversation history for context
-        history = get_session_history(session_id)
-        
-        # Generate plan
-        plan = generate_plan(request.request, history=history if history else None)
-        
-        # Save plan
-        task_manager.set_plan(task.id, plan.model_dump())
-        
-        # Determine next state based on approval mode
-        if request.auto_approve or not settings.require_approval:
-            task_manager.update_state(task.id, TMState.APPROVED)
-            # Auto-execute
-            asyncio.create_task(_execute_task(task.id, plan, session_id))
-        else:
-            task_manager.update_state(task.id, TMState.AWAITING_APPROVAL)
-        
-        # Broadcast update to WebSocket clients
-        await ws_manager.broadcast_all({
-            "type": "task_created",
-            "task": _task_to_summary(task_manager.get_task(task.id)).model_dump(mode="json"),
-        })
-        
-        return {
-            "task_id": task.id,
-            "session_id": session_id,
-            "state": task_manager.get_task(task.id).state.value,
-            "plan": plan.model_dump(),
-            "requires_approval": settings.require_approval and not request.auto_approve,
-        }
-    
-    except LLMError as e:
-        task_manager.update_state(task.id, TMState.FAILED, str(e))
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        logger.exception("Plan generation failed")
-        task_manager.update_state(task.id, TMState.FAILED, str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to generate plan: {e}")
-
-
-@app.post("/tasks/approve")
-async def approve_task(approval: TaskApproval):
-    """Approve or reject a pending task."""
-    task = task_manager.get_task(approval.task_id)
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    if task.state != TMState.AWAITING_APPROVAL:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Task is not awaiting approval (current state: {task.state.value})"
-        )
-    
-    if approval.approved:
-        task_manager.update_state(task.id, TMState.APPROVED)
-        
-        # Start execution
-        plan = Plan(**task.plan)
-        asyncio.create_task(_execute_task(task.id, plan, task.session_id))
-        
-        # Broadcast update
-        await ws_manager.broadcast_to_task(task.id, {
-            "type": "task_approved",
-            "task_id": task.id,
-        })
-        
-        return {"status": "approved", "task_id": task.id}
-    else:
-        task_manager.update_state(task.id, TMState.REJECTED, approval.feedback)
-        
-        # Broadcast update
-        await ws_manager.broadcast_to_task(task.id, {
-            "type": "task_rejected",
-            "task_id": task.id,
-            "feedback": approval.feedback,
-        })
-        
-        return {"status": "rejected", "task_id": task.id}
-
-
-@app.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str):
-    """Cancel a running or pending task."""
-    task = task_manager.get_task(task_id)
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    if task.state in {TMState.COMPLETED, TMState.FAILED, TMState.CANCELLED}:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Task is already in terminal state: {task.state.value}"
-        )
-    
-    task_manager.update_state(task_id, TMState.CANCELLED)
-    
-    # Broadcast update
-    await ws_manager.broadcast_to_task(task_id, {
-        "type": "task_cancelled",
-        "task_id": task_id,
-    })
-    
-    return {"status": "cancelled", "task_id": task_id}
-
-
-# ============================================================================
-# Agentic Endpoint (ReAct-based)
-# ============================================================================
-
-@app.post("/agent/run")
-async def run_agent(request: TaskRequest):
+@app.post("/run")
+async def run_task(request: TaskRequest):
     """
-    Run the ReAct agent for a truly agentic experience.
+    Run a task using the ReAct agent.
     
-    Unlike the plan-then-execute approach, this endpoint:
-    - Thinks step-by-step
-    - Adapts based on results
-    - Handles conversations naturally
-    - Streams progress via WebSocket
+    The agent uses shell commands and Python to accomplish tasks,
+    adapting step-by-step based on results.
     """
     from agent.orchestrator.react_agent import ReActAgent
     
     session_id = request.session_id or str(uuid.uuid4())
+    add_message(session_id, "user", request.request)
     
-    # Add to history
-    add_to_history(session_id, "user", request.request)
-    
-    # Create task for tracking
+    # Create task
     task = task_manager.create_task(request.request, session_id)
     task_manager.update_state(task.id, TMState.EXECUTING)
     
-    async def progress_callback(iteration: int, status: str, thought: str, action: str):
-        """Send progress updates via WebSocket."""
-        await ws_manager.broadcast_to_task(task.id, {
-            "type": "agent_progress",
+    async def on_progress(iteration: int, status: str, thought: str, action: str):
+        await ws.broadcast(task.id, {
+            "type": "progress",
             "task_id": task.id,
             "iteration": iteration,
             "status": status,
@@ -340,40 +212,33 @@ async def run_agent(request: TaskRequest):
         })
     
     try:
-        # Get conversation history for context
-        history = get_session_history(session_id)
-        conv_history = [{"role": m.role, "content": m.content} for m in history]
+        history = get_history(session_id)
+        conv = [{"role": m.role, "content": m.content} for m in history]
         
         agent = ReActAgent(
             tool_registry=tool_registry,
             sandbox=sandbox,
-            on_progress=progress_callback,
+            on_progress=on_progress,
             max_iterations=15,
-            conversation_history=conv_history
+            conversation_history=conv
         )
         
-        # Run the agent
         state = await agent.run(request.request)
         
-        # Update task manager
         if state.status == "completed":
             task_manager.update_state(task.id, TMState.COMPLETED)
-            task_manager.set_summary(task.id, state.final_answer or "Task completed")
+            task_manager.set_summary(task.id, state.final_answer or "Done")
         else:
             task_manager.update_state(task.id, TMState.FAILED, state.error)
         
-        # Add response to history
         if state.final_answer:
-            add_to_history(session_id, "assistant", state.final_answer)
+            add_message(session_id, "assistant", state.final_answer)
         
-        # Broadcast completion
-        await ws_manager.broadcast_to_task(task.id, {
-            "type": "agent_complete",
+        await ws.broadcast(task.id, {
+            "type": "complete",
             "task_id": task.id,
             "status": state.status,
             "response": state.final_answer,
-            "steps": len(state.steps),
-            "context": {k: str(v)[:200] for k, v in state.context.items()},
         })
         
         return {
@@ -381,17 +246,23 @@ async def run_agent(request: TaskRequest):
             "session_id": session_id,
             "status": state.status,
             "response": state.final_answer,
-            "steps_taken": len(state.steps),
-            "context": {k: str(v)[:500] for k, v in state.context.items()},
+            "steps": len(state.steps),
         }
     
     except LLMError as e:
         task_manager.update_state(task.id, TMState.FAILED, str(e))
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        logger.exception("Agent execution failed")
+        logger.exception("Agent failed")
         task_manager.update_state(task.id, TMState.FAILED, str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Legacy alias
+@app.post("/agent/run")
+async def run_agent(request: TaskRequest):
+    """Alias for /run (backward compatibility)."""
+    return await run_task(request)
 
 
 @app.get("/tasks")
@@ -400,7 +271,7 @@ async def list_tasks(
     state: Optional[str] = None,
     limit: int = 50,
 ) -> List[TaskSummary]:
-    """List tasks, optionally filtered by session or state."""
+    """List tasks."""
     states = None
     if state:
         try:
@@ -409,181 +280,56 @@ async def list_tasks(
             raise HTTPException(status_code=400, detail=f"Invalid state: {state}")
     
     tasks = task_manager.get_tasks(session_id=session_id, states=states, limit=limit)
-    return [_task_to_summary(t) for t in tasks]
+    return [_to_summary(t) for t in tasks]
 
 
 @app.get("/tasks/{task_id}")
 async def get_task(task_id: str) -> TaskDetail:
-    """Get detailed information about a specific task."""
+    """Get task details."""
     task = task_manager.get_task(task_id)
-    
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return _to_detail(task)
+
+
+@app.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """Cancel a task."""
+    task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    return _task_to_detail(task)
-
-
-@app.get("/tasks/{task_id}/workspace")
-async def get_workspace_files(task_id: str):
-    """List files in a task's workspace."""
-    task = task_manager.get_task(task_id)
+    if task.state in {TMState.COMPLETED, TMState.FAILED, TMState.CANCELLED}:
+        raise HTTPException(status_code=400, detail=f"Task already {task.state.value}")
     
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    files = task_manager.list_workspace_files(task_id)
-    
-    return {
-        "task_id": task_id,
-        "workspace_path": task.workspace_path,
-        "files": files,
-    }
-
-
-# ============================================================================
-# Streaming Endpoint (for backward compatibility)
-# ============================================================================
-
-@app.post("/tasks/stream")
-async def stream_task(task: TaskRequest, parallel: bool = True):
-    """Stream task execution progress via SSE (legacy endpoint)."""
-    session_id = task.session_id or str(uuid.uuid4())
-    
-    async def event_stream():
-        try:
-            history = get_session_history(session_id)
-            add_to_history(session_id, "user", task.request)
-            
-            plan = generate_plan(task.request, history=history if history else None)
-            
-            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
-            yield f"data: {json.dumps({'type': 'plan', 'plan': plan.model_dump()})}\n\n"
-            
-            progress_queue = asyncio.Queue()
-            
-            def on_progress(step_id: str, status: str, current: int, total: int):
-                asyncio.get_event_loop().call_soon_threadsafe(
-                    progress_queue.put_nowait,
-                    {"step_id": step_id, "status": status}
-                )
-            
-            executor = Executor(
-                plan=plan,
-                tool_registry=tool_registry,
-                sandbox=sandbox,
-                on_progress=on_progress,
-                parallel=parallel,
-            )
-            
-            exec_task = asyncio.create_task(executor.run())
-            
-            while not exec_task.done():
-                try:
-                    progress = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
-                    yield f"data: {json.dumps({'type': 'progress', **progress})}\n\n"
-                except asyncio.TimeoutError:
-                    continue
-            
-            while not progress_queue.empty():
-                progress = progress_queue.get_nowait()
-                yield f"data: {json.dumps({'type': 'progress', **progress})}\n\n"
-            
-            results = await exec_task
-            results_dict = {k: v.model_dump() for k, v in results.items()}
-            yield f"data: {json.dumps({'type': 'result', 'results': results_dict})}\n\n"
-            
-            if plan.is_chat:
-                summary = plan.chat_response or "Hello!"
-            else:
-                summary = summarize_results(task.request, results)
-            
-            add_to_history(session_id, "assistant", summary)
-            yield f"data: {json.dumps({'type': 'summary', 'summary': summary})}\n\n"
-            
-        except LLMError as e:
-            logger.error(f"LLM error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-        except Exception as e:
-            logger.exception("Task execution failed")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-    
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
-
-
-@app.post("/tasks", response_model=TaskResponse)
-async def create_task_sync(task: TaskRequest, parallel: bool = True):
-    """Create and execute a task from natural language (synchronous)."""
-    try:
-        plan = generate_plan(task.request)
-    except LLMError as e:
-        logger.error(f"LLM error: {e}")
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        logger.exception("Plan generation failed")
-        raise HTTPException(status_code=500, detail=f"Failed to generate plan: {e}")
-    
-    task_id = str(uuid.uuid4())
-
-    executor = Executor(
-        plan=plan, 
-        tool_registry=tool_registry, 
-        sandbox=sandbox,
-        parallel=parallel,
-    )
-    results = await executor.run()
-
-    return TaskResponse(task_id=task_id, plan=plan, results=results)
+    task_manager.update_state(task_id, TMState.CANCELLED)
+    await ws.broadcast(task_id, {"type": "cancelled", "task_id": task_id})
+    return {"status": "cancelled", "task_id": task_id}
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "ok",
-        "version": "0.2.0",
-        "require_approval": settings.require_approval,
-    }
+async def health():
+    """Health check."""
+    return {"status": "ok", "version": "0.3.0"}
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
+# =============================================================================
+# Helpers
+# =============================================================================
 
-def _task_to_summary(task) -> TaskSummary:
-    """Convert internal Task to TaskSummary."""
-    step_count = len(task.plan.get("steps", [])) if task.plan else 0
-    completed_steps = len([
-        r for r in task.step_results.values()
-        if r.get("status") == "success"
-    ])
-    
+def _to_summary(task) -> TaskSummary:
     return TaskSummary(
         id=task.id,
         request=task.request,
         state=TaskState(task.state.value),
         created_at=task.created_at,
-        step_count=step_count,
-        completed_steps=completed_steps,
+        step_count=0,
+        completed_steps=0,
         error=task.error,
     )
 
 
-def _task_to_detail(task) -> TaskDetail:
-    """Convert internal Task to TaskDetail."""
-    plan = Plan(**task.plan) if task.plan else None
-    step_results = {
-        k: StepResult(**v) for k, v in task.step_results.items()
-    } if task.step_results else {}
-    
-    workspace_files = task_manager.list_workspace_files(task.id)
-    
+def _to_detail(task) -> TaskDetail:
     return TaskDetail(
         id=task.id,
         request=task.request,
@@ -591,120 +337,11 @@ def _task_to_detail(task) -> TaskDetail:
         state=TaskState(task.state.value),
         created_at=task.created_at,
         updated_at=task.updated_at,
-        plan=plan,
-        step_results=step_results,
+        plan=None,
+        step_results={},
         current_step=task.current_step,
         summary=task.summary,
         error=task.error,
         workspace_path=task.workspace_path,
-        workspace_files=workspace_files,
+        workspace_files=task_manager.list_workspace_files(task.id),
     )
-
-
-async def _execute_task(task_id: str, plan: Plan, session_id: Optional[str]):
-    """Execute a task and broadcast progress updates."""
-    task_manager.update_state(task_id, TMState.EXECUTING)
-    
-    # Broadcast execution started
-    await ws_manager.broadcast_to_task(task_id, {
-        "type": "execution_started",
-        "task_id": task_id,
-    })
-    
-    progress_queue = asyncio.Queue()
-    
-    def on_progress(step_id: str, status: str, current: int, total: int):
-        task_manager.update_step_progress(task_id, step_id, status, current, total)
-        asyncio.get_event_loop().call_soon_threadsafe(
-            progress_queue.put_nowait,
-            {"step_id": step_id, "status": status, "current": current, "total": total}
-        )
-    
-    try:
-        executor = Executor(
-            plan=plan,
-            tool_registry=tool_registry,
-            sandbox=sandbox,
-            on_progress=on_progress,
-            parallel=settings.parallel_execution,
-        )
-        
-        # Start execution
-        exec_task = asyncio.create_task(executor.run())
-        
-        # Stream progress updates via WebSocket
-        while not exec_task.done():
-            try:
-                progress = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
-                await ws_manager.broadcast_to_task(task_id, {
-                    "type": "step_progress",
-                    "task_id": task_id,
-                    **progress,
-                })
-            except asyncio.TimeoutError:
-                continue
-        
-        # Drain remaining progress events
-        while not progress_queue.empty():
-            progress = progress_queue.get_nowait()
-            await ws_manager.broadcast_to_task(task_id, {
-                "type": "step_progress",
-                "task_id": task_id,
-                **progress,
-            })
-        
-        # Get results
-        results = await exec_task
-        
-        # Store results
-        for step_id, result in results.items():
-            task_manager.set_step_result(task_id, step_id, result.model_dump())
-        
-        # Broadcast results
-        results_dict = {k: v.model_dump() for k, v in results.items()}
-        await ws_manager.broadcast_to_task(task_id, {
-            "type": "execution_results",
-            "task_id": task_id,
-            "results": results_dict,
-        })
-        
-        # Check if any steps failed
-        failed_steps = [r for r in results.values() if r.status == "error"]
-        
-        # Generate summary
-        task = task_manager.get_task(task_id)
-        
-        if plan.is_chat:
-            summary = plan.chat_response or "Hello!"
-        else:
-            summary = summarize_results(task.request, results)
-        
-        task_manager.set_summary(task_id, summary)
-        
-        # Add to conversation history
-        if session_id:
-            add_to_history(session_id, "assistant", summary)
-        
-        # Update final state
-        if failed_steps:
-            task_manager.update_state(task_id, TMState.FAILED)
-        else:
-            task_manager.update_state(task_id, TMState.COMPLETED)
-        
-        # Broadcast completion
-        await ws_manager.broadcast_to_task(task_id, {
-            "type": "task_completed",
-            "task_id": task_id,
-            "summary": summary,
-            "state": task_manager.get_task(task_id).state.value,
-        })
-    
-    except Exception as e:
-        logger.exception(f"Task execution failed: {task_id}")
-        task_manager.update_state(task_id, TMState.FAILED, str(e))
-        
-        await ws_manager.broadcast_to_task(task_id, {
-            "type": "task_failed",
-            "task_id": task_id,
-            "error": str(e),
-        })

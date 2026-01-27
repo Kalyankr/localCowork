@@ -52,13 +52,6 @@ class TaskRequest(BaseModel):
     auto_approve: bool = False  # Skip approval step if True
 
 
-class TaskApproval(BaseModel):
-    """Request to approve or reject a pending task."""
-    task_id: str
-    approved: bool
-    feedback: Optional[str] = None  # Optional feedback if rejected
-
-
 class StepResult(BaseModel):
     step_id: str
     status: str
@@ -100,8 +93,54 @@ class TaskResponse(BaseModel):
     results: Dict[str, StepResult]
 
 
+class WSMessageType(str, Enum):
+    """WebSocket message types."""
+    SUBSCRIBE = "subscribe"
+    UNSUBSCRIBE = "unsubscribe"
+    PING = "ping"
+    PONG = "pong"
+    SUBSCRIBED = "subscribed"
+    TASK_UPDATE = "task_update"
+    TASK_COMPLETE = "task_complete"
+    TASK_ERROR = "task_error"
+    STEP_OUTPUT = "step_output"
+    ERROR = "error"
+
+
 class WebSocketMessage(BaseModel):
     """Message format for WebSocket communication."""
-    type: str  # subscribe, unsubscribe, approve, reject, cancel
+    type: WSMessageType
     task_id: Optional[str] = None
     data: Dict[str, Any] = {}
+    
+    @classmethod
+    def subscribe(cls, task_id: str) -> "WebSocketMessage":
+        return cls(type=WSMessageType.SUBSCRIBE, task_id=task_id)
+    
+    @classmethod
+    def pong(cls) -> "WebSocketMessage":
+        return cls(type=WSMessageType.PONG)
+    
+    @classmethod
+    def subscribed(cls, task_id: str) -> "WebSocketMessage":
+        return cls(type=WSMessageType.SUBSCRIBED, task_id=task_id)
+    
+    @classmethod
+    def task_update(cls, task_id: str, data: Dict[str, Any]) -> "WebSocketMessage":
+        return cls(type=WSMessageType.TASK_UPDATE, task_id=task_id, data=data)
+    
+    @classmethod
+    def step_output(cls, task_id: str, step: str, output: Any) -> "WebSocketMessage":
+        return cls(type=WSMessageType.STEP_OUTPUT, task_id=task_id, data={"step": step, "output": output})
+    
+    @classmethod
+    def task_complete(cls, task_id: str, summary: str) -> "WebSocketMessage":
+        return cls(type=WSMessageType.TASK_COMPLETE, task_id=task_id, data={"summary": summary})
+    
+    @classmethod
+    def task_error(cls, task_id: str, error: str) -> "WebSocketMessage":
+        return cls(type=WSMessageType.TASK_ERROR, task_id=task_id, data={"error": error})
+    
+    @classmethod
+    def error(cls, message: str) -> "WebSocketMessage":
+        return cls(type=WSMessageType.ERROR, data={"message": message})

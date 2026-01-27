@@ -267,8 +267,7 @@ class ReActAgent:
             conversation_history=conv_history,
             history=history,
             observation=self._format_observation(observation),
-            context=json.dumps(state.context, indent=2, default=str)[:2000],  # Limit context size
-            available_tools=self._format_tools()
+            context=json.dumps(state.context, indent=2, default=str)[:2000]  # Limit context size
         )
         
         try:
@@ -305,7 +304,7 @@ class ReActAgent:
         import os
         
         try:
-            # Handle Python code execution (primary tool)
+            # Handle Python code execution
             if action.tool == "python":
                 code = action.args.get("code", "")
                 full_code = self._inject_context(code, context)
@@ -329,60 +328,78 @@ class ReActAgent:
                     output=parsed_output
                 )
             
-            # Handle shell command execution (direct shell access)
+            # Handle shell command execution
             if action.tool == "shell":
                 command = action.args.get("command", "")
-                cwd = action.args.get("cwd", os.path.expanduser("~"))
+                cwd = action.args.get("cwd")
+                
+                # Expand ~ in cwd if provided, otherwise use home
+                if cwd:
+                    cwd = os.path.expanduser(cwd)
+                else:
+                    cwd = os.path.expanduser("~")
+                
+                # Expand ~ in command itself
+                command = command.replace("~/", os.path.expanduser("~") + "/")
                 
                 try:
                     result = subprocess.run(
                         command,
                         shell=True,
                         capture_output=True,
-                        timeout=60,
+                        timeout=120,  # 2 minutes for longer operations
                         cwd=cwd,
+                        env={**os.environ, "HOME": os.path.expanduser("~")},
                     )
                     
-                    output = result.stdout.decode()
-                    stderr = result.stderr.decode()
+                    output = result.stdout.decode(errors="replace")
+                    stderr = result.stderr.decode(errors="replace")
                     
+                    # Non-zero exit isn't always an error (e.g., grep no match)
+                    # Return both stdout and stderr for context
                     if result.returncode != 0:
+                        combined = output + stderr if output else stderr
                         return StepResult(
-                            step_id=f"action_shell",
+                            step_id="shell",
                             status="error",
-                            output=output,
-                            error=f"Exit code {result.returncode}: {stderr}"
+                            output=output if output else None,
+                            error=f"Exit {result.returncode}: {stderr[:500]}" if stderr else f"Exit {result.returncode}"
                         )
                     
                     return StepResult(
-                        step_id=f"action_shell",
+                        step_id="shell",
                         status="success",
-                        output=output or stderr or "Command completed"
+                        output=output or stderr or "(no output)"
                     )
                 except subprocess.TimeoutExpired:
                     return StepResult(
-                        step_id=f"action_shell",
+                        step_id="shell",
                         status="error",
-                        error="Command timed out after 60s"
+                        error="Command timed out after 2 minutes"
+                    )
+                except Exception as e:
+                    return StepResult(
+                        step_id="shell",
+                        status="error",
+                        error=f"Shell error: {str(e)}"
                     )
             
-            # Handle regular tool execution (helper tools)
-            tool = self.tool_registry.get(action.tool)
-            if not tool:
+            # Fallback: try registered tools (for backward compatibility)
+            if self.tool_registry.has(action.tool):
+                tool = self.tool_registry.get(action.tool)
+                resolved_args = self._resolve_args(action.args, context)
+                output = tool(**resolved_args)
                 return StepResult(
                     step_id=f"action_{action.tool}",
-                    status="error",
-                    error=f"Unknown tool: {action.tool}"
+                    status="success",
+                    output=output
                 )
             
-            # Resolve any context references in args
-            resolved_args = self._resolve_args(action.args, context)
-            output = tool(**resolved_args)
-            
+            # Unknown tool
             return StepResult(
                 step_id=f"action_{action.tool}",
-                status="success",
-                output=output
+                status="error",
+                error=f"Unknown tool: {action.tool}. Use 'shell' or 'python'."
             )
             
         except Exception as e:
@@ -465,40 +482,6 @@ class ReActAgent:
             if len(obs.content) > 10:
                 content += f"\n... and {len(obs.content) - 10} more items"
         return f"[{obs.source}] {content}"
-    
-    def _format_tools(self) -> str:
-        """Format available tools for the prompt - code-first with helpers."""
-        # Get registered helper tools
-        helper_tools = self.tool_registry.list_tools()
-        
-        tools_text = """## PRIMARY TOOLS
-
-**shell** - Run any shell command (PREFERRED for simple tasks)
-  Example: {"tool": "shell", "args": {"command": "ls -la ~/Downloads"}}
-
-**python** - Execute Python code
-  Example: {"tool": "python", "args": {"code": "import os; print(os.listdir('.'))"}}
-
-## HELPER TOOLS (for complex operations)
-"""
-        # Add registered tools
-        descriptions = {
-            "file_op": "list/read/write/move/copy/delete files",
-            "web_op": "fetch URL, search web, download",
-            "pdf_op": "extract PDF text, merge, split",
-            "data_op": "CSV/Excel/JSON conversion",
-            "json_op": "read/write/query JSON",
-            "archive_op": "zip/unzip/tar operations",
-            "text_op": "summarize text (uses AI)",
-            "shell_op": "run shell commands (structured)",
-        }
-        
-        for tool in helper_tools:
-            if tool in descriptions:
-                tools_text += f"- {tool}: {descriptions[tool]}\n"
-        
-        tools_text += "\nPrefer python/shell for flexibility. Use helpers for complex operations."
-        return tools_text
     
     def _format_result(self, result: StepResult) -> str:
         """Format a step result for observation."""
