@@ -115,10 +115,10 @@ class ReActAgent:
         state = AgentState(goal=goal)
         consecutive_failures = 0
         
-        # Initial observation
+        # Initial observation - keep it minimal to avoid confusing the model
         initial_obs = Observation(
             source="initial",
-            content=f"Goal: {goal}\nAvailable tools: {list(self.tool_registry.list_tools())}"
+            content="Ready to help."
         )
         
         logger.info(f"ReAct agent starting: {goal}")
@@ -217,7 +217,7 @@ class ReActAgent:
                 state.steps.append(step)
                 
                 if self.on_progress:
-                    status = step.result.status if step.result else "pending"
+                    status = "success" if step.result and step.result.status == "success" else "error" if step.result and step.result.status == "error" else "executing"
                     self.on_progress(iteration, status, thought.reasoning[:100], 
                                     f"{action.tool}" if action else "")
                 
@@ -366,10 +366,17 @@ class ReActAgent:
                             error=f"Exit {result.returncode}: {stderr[:500]}" if stderr else f"Exit {result.returncode}"
                         )
                     
+                    # Include stderr in output if present (warnings, progress, etc.)
+                    final_output = output
+                    if stderr and not output:
+                        final_output = stderr
+                    elif stderr and output:
+                        final_output = output + "\n[stderr]: " + stderr[:200]
+                    
                     return StepResult(
                         step_id="shell",
                         status="success",
-                        output=output or stderr or "(no output)"
+                        output=final_output or "(no output)"
                     )
                 except subprocess.TimeoutExpired:
                     return StepResult(
@@ -414,7 +421,7 @@ class ReActAgent:
         Reflect on whether the goal was actually achieved.
         
         Returns:
-            Dict with "verified" (bool) and "reason" (str)
+            Dict with "verified" (bool), "reason" (str), and "summary" (str)
         """
         prompt = REFLECTION_PROMPT.format(
             goal=state.goal,
@@ -426,12 +433,14 @@ class ReActAgent:
             response = call_llm_json(prompt)
             return {
                 "verified": response.get("verified", response.get("goal_achieved", False)),
-                "reason": response.get("reason", response.get("explanation", ""))
+                "reason": response.get("reason", response.get("explanation", "")),
+                "summary": response.get("summary", ""),
+                "suggestions": response.get("suggestions", [])
             }
         except Exception as e:
             logger.warning(f"Reflection failed: {e}")
             # Default to verified if reflection fails
-            return {"verified": True, "reason": "Reflection check failed, assuming complete"}
+            return {"verified": True, "reason": "Reflection check failed, assuming complete", "summary": ""}
     
     def _build_history(self, state: AgentState) -> str:
         """Build a string representation of execution history."""

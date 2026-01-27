@@ -228,7 +228,7 @@ def _process_input_agentic(user_input: str, model: str, conversation_history: li
         
         return Panel(
             content,
-            border_style="dim cyan",
+            border_style="bright_black",
             box=box.ROUNDED,
             padding=(0, 1),
             width=width,
@@ -262,8 +262,8 @@ def _process_input_agentic(user_input: str, model: str, conversation_history: li
         
         start_time = time.time()
         
-        console.print()
-        console.print(Rule("[bold cyan] Processing [/bold cyan]", style="dim", align="center"))
+        # Simple processing indicator
+        console.print("  [dim]───[/dim]")
         console.print()
         
         # Run agent with live display
@@ -290,7 +290,7 @@ def _process_input_agentic(user_input: str, model: str, conversation_history: li
         elapsed = time.time() - start_time
         
         console.print()
-        console.print(Rule(f"[dim]Completed in {format_duration(elapsed)}[/dim]", style="dim", align="center"))
+        console.print(f"  [dim]─── completed in {format_duration(elapsed)} ───[/dim]")
         console.print()
         
         # Get the response for history
@@ -437,18 +437,18 @@ def _show_context_data(context: dict):
 
 
 def _show_response(text: str, model: str):
-    """Display agent response in a nice panel."""
+    """Display agent response - clean like Gemini/Copilot."""
     width = _get_width()
     
     # Clean and wrap the text properly
     lines = []
     for line in text.split("\n"):
-        if len(line) > width - 6:
+        if len(line) > width - 8:
             # Word wrap long lines
             words = line.split()
             current = ""
             for word in words:
-                if len(current) + len(word) + 1 > width - 6:
+                if len(current) + len(word) + 1 > width - 8:
                     lines.append(current)
                     current = word
                 else:
@@ -458,72 +458,47 @@ def _show_response(text: str, model: str):
         else:
             lines.append(line)
     
-    wrapped_text = "\n".join(lines)
-    
-    panel = Panel(
-        wrapped_text,
-        title=f"[cyan]{model}[/cyan]",
-        title_align="left",
-        border_style="dim",
-        padding=(0, 1),
-        width=width,
-    )
-    console.print(panel)
+    # Print response with simple formatting
+    console.print()
+    console.print(f"  [bold cyan]◆[/bold cyan] [bold]Response[/bold]")
+    console.print()
+    for line in lines:
+        console.print(f"    {line}")
+    console.print()
 
 
 def _show_welcome(model: str):
-    """Show welcome screen."""
-    width = _get_width()
-    
-    # ASCII art logo - clean and minimal
-    logo = """[bold cyan]
-  ██╗      ██████╗
-  ██║     ██╔════╝
-  ██║     ██║     
-  ███████╗██████╗
-  ╚══════╝ ╚═════╝[/bold cyan]
-  [dim]LocalCowork[/dim]"""
-    
-    info_box = f"""[bright_black]┌──────────────────────────────────────────┐
-│[/bright_black]  [dim]Model[/dim]   [cyan]{model:<30}[/cyan] [bright_black]│
-│[/bright_black]  [dim]Mode[/dim]    [green]shell[/green] [dim]+[/dim] [blue]python[/blue]                  [bright_black]│
-│[/bright_black]  [dim]Status[/dim]  [green]● connected[/green]                    [bright_black]│
-└──────────────────────────────────────────┘[/bright_black]"""
-    
+    """Show welcome screen - clean and minimal like Gemini/Copilot."""
     console.print()
-    console.print(logo)
     console.print()
-    console.print(info_box)
+    console.print("  [bold cyan]██╗     [/bold cyan] [bold white]LocalCowork[/bold white]")
+    console.print("  [bold cyan]██║     [/bold cyan] [dim]Pure Agentic AI Assistant[/dim]")
+    console.print("  [bold cyan]███████╗[/bold cyan]")
     console.print()
-    console.print("  [white]What would you like to accomplish?[/white]")
-    console.print("  [dim]I'll work through it step by step.[/dim]")
+    console.print(f"  [dim]Model:[/dim] [cyan]{model}[/cyan]")
+    console.print(f"  [dim]Tools:[/dim] [green]shell[/green] [dim]+[/dim] [blue]python[/blue]")
     console.print()
-    console.print("  [bright_black]──────────────────────────────────────────[/bright_black]")
-    console.print("  [dim]/help[/dim]  [bright_black]│[/bright_black]  [dim]/clear[/dim]  [bright_black]│[/bright_black]  [dim]/quit[/dim]")
-    console.print("  [bright_black]──────────────────────────────────────────[/bright_black]")
-    print_padding(2)
+    console.print("  [bright_black]──────────────────────────────────────────────────[/bright_black]")
+    console.print()
+    console.print("  [white]How can I help you today?[/white]")
+    console.print()
+    print_padding(1)
 
 
 def _get_input() -> str:
-    """Get user input with complete rectangle box."""
+    """Get user input with solid rectangle box."""
     width = _get_width()
-    inner_width = width - 4
+    inner = width - 6
     
     try:
-        # Styled input area with label
         console.print()
-        console.print(f"  [bright_black]╭─[/bright_black] [dim]Your request[/dim] [bright_black]" + "─" * (inner_width - 16) + "╮[/bright_black]")
-        console.print("  [bright_black]│[/bright_black]" + " " * inner_width + "[bright_black]│[/bright_black]")
-        console.print("  [bright_black]│[/bright_black]  ", end="")
+        console.print(f"  [cyan]┌{'─' * inner}┐[/cyan]")
+        console.print(f"  [cyan]│[/cyan] [bold green]❯[/bold green] ", end="")
         
-        user_input = console.input("[bold green]❯[/bold green] ")
+        user_input = console.input("")
         
-        console.print("  [bright_black]│[/bright_black]" + " " * inner_width + "[bright_black]│[/bright_black]")
-        console.print(f"  [bright_black]╰" + "─" * inner_width + "╯[/bright_black]")
-        
-        # Bottom padding
-        print_padding(2)
-        
+        console.print(f"  [cyan]└{'─' * inner}┘[/cyan]")
+        console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
         console.print()

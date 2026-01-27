@@ -82,7 +82,8 @@ def print_info(message: str):
 
 def print_padding(lines: int = 2):
     """Add vertical padding at bottom of terminal."""
-    console.print("\\n" * (lines - 1))
+    for _ in range(lines):
+        console.print()
 
 
 def format_duration(seconds: float) -> str:
