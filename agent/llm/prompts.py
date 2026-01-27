@@ -271,7 +271,9 @@ If the request is a GREETING or QUESTION (like "hello", "what can you do"):
 → Set is_complete=true and provide response
 
 If the request needs ACTION:
-→ Use shell/python to accomplish it
+→ For file listing: use shell with "ls" command
+→ For simple tasks: use shell (ls, cat, mv, cp, find, grep, etc.)
+→ For complex logic: use python
 → After getting results, set is_complete=true
 
 ## JSON OUTPUT FORMAT

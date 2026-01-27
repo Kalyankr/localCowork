@@ -1,13 +1,22 @@
 """Pure agentic loop - ReAct-based autonomous agent."""
 
 import asyncio
+import shutil
 from typing import Optional
 from rich.panel import Panel
 from rich.live import Live
 from rich.table import Table
+from rich.text import Text
+from rich.markdown import Markdown
 from rich import box
 
 from agent.cli.console import console, Icons, print_error
+
+
+# Get terminal width for proper formatting
+def _get_width() -> int:
+    """Get terminal width, with a reasonable default."""
+    return min(shutil.get_terminal_size().columns - 4, 100)
 
 
 def run_agent(model_override: str = None):
@@ -86,30 +95,43 @@ def _process_input_agentic(user_input: str, model: str):
     
     def build_agent_display():
         """Build live display showing agent's reasoning and actions."""
-        table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1), expand=True)
-        table.add_column("", width=60)
+        width = _get_width()
+        
+        lines = []
         
         # Current thinking
         if current_state["status"] == "thinking":
-            table.add_row(f"  [yellow]🤔 Thinking...[/yellow]")
+            lines.append(Text("  🤔 Thinking...", style="yellow"))
         elif current_state["thought"]:
-            thought_preview = current_state["thought"][:80]
-            if len(current_state["thought"]) > 80:
-                thought_preview += "..."
-            table.add_row(f"  [cyan]💭 {thought_preview}[/cyan]")
+            thought_text = current_state["thought"]
+            if len(thought_text) > width - 10:
+                thought_text = thought_text[:width - 13] + "..."
+            lines.append(Text(f"  💭 {thought_text}", style="cyan"))
         
         # Current action
         if current_state["action"]:
-            table.add_row(f"  [green]⚡ {current_state['action']}[/green]")
+            action_text = current_state["action"]
+            if len(action_text) > width - 10:
+                action_text = action_text[:width - 13] + "..."
+            lines.append(Text(f"  ⚡ {action_text}", style="green"))
         
         # Previous steps summary
         if current_state["steps"]:
-            table.add_row("")
-            for step in current_state["steps"][-5:]:  # Last 5 steps
+            lines.append(Text(""))
+            for step in current_state["steps"][-5:]:
                 iter_num, action, status, _ = step
                 icon = "✓" if status == "success" else "✗" if status == "error" else "○"
                 color = "green" if status == "success" else "red" if status == "error" else "dim"
-                table.add_row(f"  [{color}]{icon} Step {iter_num}: {action}[/{color}]")
+                step_text = f"  {icon} Step {iter_num}: {action}"
+                if len(step_text) > width - 4:
+                    step_text = step_text[:width - 7] + "..."
+                lines.append(Text(step_text, style=color))
+        
+        # Build table with lines
+        table = Table(box=None, show_header=False, padding=(0, 0), expand=False)
+        table.add_column("", width=width)
+        for line in lines:
+            table.add_row(line)
         
         return table
     
@@ -217,104 +239,170 @@ def _show_context_data(context: dict):
     if not context:
         return
     
-    # Filter out non-displayable context
+    width = _get_width()
+    
+    # Filter out non-displayable or error context
     displayable = {}
     for key, value in context.items():
         if value is None or value == "" or value == []:
             continue
+        # Skip error outputs or code that failed
+        if isinstance(value, str):
+            if "SyntaxError" in value or "Traceback" in value or "Error:" in value:
+                continue
+            if value.startswith("import ") or value.startswith("def "):
+                continue
         displayable[key] = value
     
     if not displayable:
         return
     
-    console.print()
-    console.print("  [dim]─── Data ───[/dim]")
+    # Build output lines
+    output_lines = []
+    max_lines = 50  # Total max lines to show
     
     for key, value in displayable.items():
-        # Format the value based on type
+        if len(output_lines) >= max_lines:
+            output_lines.append("[dim]... output truncated ...[/dim]")
+            break
+            
         if isinstance(value, list):
-            if len(value) <= 20:
-                for item in value:
-                    console.print(f"  [dim]•[/dim] {item}")
-            else:
-                for item in value[:20]:
-                    console.print(f"  [dim]•[/dim] {item}")
-                console.print(f"  [dim]... and {len(value) - 20} more[/dim]")
+            # Show list items
+            items_to_show = min(len(value), max_lines - len(output_lines))
+            for item in value[:items_to_show]:
+                item_str = str(item)
+                if len(item_str) > width - 8:
+                    item_str = item_str[:width - 11] + "..."
+                output_lines.append(f"  • {item_str}")
+            if len(value) > items_to_show:
+                output_lines.append(f"  [dim]... and {len(value) - items_to_show} more[/dim]")
+                
         elif isinstance(value, dict):
             import json
             formatted = json.dumps(value, indent=2, default=str)
-            for line in formatted.split("\n")[:30]:
-                console.print(f"  [dim]{line}[/dim]")
+            for line in formatted.split("\n")[:20]:
+                if len(line) > width - 4:
+                    line = line[:width - 7] + "..."
+                output_lines.append(f"  {line}")
+                
         elif isinstance(value, str):
-            # Multi-line strings
             lines = value.strip().split("\n")
-            if len(lines) <= 30:
-                for line in lines:
-                    console.print(f"  {line}")
-            else:
-                for line in lines[:30]:
-                    console.print(f"  {line}")
-                console.print(f"  [dim]... {len(lines) - 30} more lines[/dim]")
+            lines_to_show = min(len(lines), max_lines - len(output_lines))
+            for line in lines[:lines_to_show]:
+                if len(line) > width - 4:
+                    line = line[:width - 7] + "..."
+                output_lines.append(f"  {line}")
+            if len(lines) > lines_to_show:
+                output_lines.append(f"  [dim]... {len(lines) - lines_to_show} more lines[/dim]")
         else:
-            console.print(f"  {value}")
+            output_lines.append(f"  {value}")
+    
+    if output_lines:
+        panel = Panel(
+            "\n".join(output_lines),
+            title="[dim]Output[/dim]",
+            title_align="left",
+            border_style="dim",
+            padding=(0, 1),
+            width=width,
+        )
+        console.print(panel)
 
 
 def _show_response(text: str, model: str):
-    """Display agent response in a nice box."""
-    console.print(f"  [dim]╭─ {Icons.ROBOT} [/dim][cyan]{model}[/cyan]")
+    """Display agent response in a nice panel."""
+    width = _get_width()
+    
+    # Clean and wrap the text properly
+    lines = []
     for line in text.split("\n"):
-        console.print(f"  [dim]│[/dim] {line}")
-    console.print(f"  [dim]╰─────[/dim]")
+        if len(line) > width - 6:
+            # Word wrap long lines
+            words = line.split()
+            current = ""
+            for word in words:
+                if len(current) + len(word) + 1 > width - 6:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = f"{current} {word}" if current else word
+            if current:
+                lines.append(current)
+        else:
+            lines.append(line)
+    
+    wrapped_text = "\n".join(lines)
+    
+    panel = Panel(
+        wrapped_text,
+        title=f"[cyan]{model}[/cyan]",
+        title_align="left",
+        border_style="dim",
+        padding=(0, 1),
+        width=width,
+    )
+    console.print(panel)
 
 
 def _show_welcome(model: str):
     """Show welcome screen."""
+    width = _get_width()
+    
+    welcome_text = f"""[bold cyan]LocalCowork[/bold cyan]
+[dim]Agentic AI Assistant[/dim]
+
+Model: [cyan]{model}[/cyan]
+Type your request and I'll work through it step by step.
+
+[dim]Commands: /help • /clear • /quit[/dim]"""
+    
+    panel = Panel(
+        welcome_text,
+        box=box.ROUNDED,
+        border_style="cyan",
+        padding=(1, 2),
+        width=width,
+    )
     console.print()
-    console.print(f"  [bold cyan]╭{'─' * 40}╮[/bold cyan]")
-    console.print(f"  [bold cyan]│[/bold cyan] {Icons.ROBOT} [bold]LocalCowork[/bold]                       [bold cyan]│[/bold cyan]")
-    console.print(f"  [bold cyan]│[/bold cyan] [dim]Agentic AI assistant[/dim]                [bold cyan]│[/bold cyan]")
-    console.print(f"  [bold cyan]╰{'─' * 40}╯[/bold cyan]")
-    console.print()
-    console.print(f"  [dim]Model:[/dim] [cyan]{model}[/cyan]")
-    console.print(f"  [dim]I'll think step-by-step and adapt as I work.[/dim]")
+    console.print(panel)
     console.print()
 
 
 def _get_input() -> str:
     """Get user input with styled prompt."""
-    console.print(f"  [green]╭─────────────────────────────────────────────╮[/green]")
-    console.print(f"  [green]│[/green] ", end="")
-    
-    lines = []
     try:
-        while True:
-            line = input()
-            if line.endswith("\\"):
-                lines.append(line[:-1])
-                console.print(f"  [green]│[/green] ", end="")
-            else:
-                lines.append(line)
-                break
-    except (KeyboardInterrupt, EOFError):
         console.print()
-        console.print(f"  [green]╰─────────────────────────────────────────────╯[/green]")
+        user_input = console.input("[green]❯[/green] ")
+        return user_input.strip()
+    except (KeyboardInterrupt, EOFError):
         raise
-    
-    console.print(f"  [green]╰─────────────────────────────────────────────╯[/green]")
-    return "\n".join(lines).strip()
 
 
 def _show_help():
     """Show minimal help."""
+    width = _get_width()
+    
+    help_text = """[bold]Examples[/bold]
+
+  [cyan]list files in my home directory[/cyan]
+  [cyan]find all python files in this project[/cyan]
+  [cyan]what's the weather like today[/cyan]
+  [cyan]summarize this PDF[/cyan]
+
+[dim]I'll figure out how to accomplish your request step by step.[/dim]
+
+[bold]Commands[/bold]
+  [dim]/clear[/dim]  Reset the screen
+  [dim]/quit[/dim]   Exit"""
+    
+    panel = Panel(
+        help_text,
+        title="[cyan]Help[/cyan]",
+        title_align="left",
+        border_style="dim",
+        padding=(1, 2),
+        width=width,
+    )
     console.print()
-    console.print("  [bold]Just describe what you want:[/bold]")
-    console.print()
-    console.print("    [cyan]organize my downloads by file type[/cyan]")
-    console.print("    [cyan]find all PDFs and summarize them[/cyan]")
-    console.print("    [cyan]search the web for Python tutorials[/cyan]")
-    console.print("    [cyan]create a report from this data[/cyan]")
-    console.print()
-    console.print("  [dim]I'll figure out the steps and adapt as I work.[/dim]")
-    console.print()
-    console.print("  [dim]/clear[/dim] - reset  [dim]/quit[/dim] - exit")
+    console.print(panel)
     console.print()

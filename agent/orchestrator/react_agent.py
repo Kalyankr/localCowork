@@ -446,19 +446,15 @@ class ReActAgent:
         # Get registered helper tools
         helper_tools = self.tool_registry.list_tools()
         
-        tools_text = """## PRIMARY TOOLS (use these for most tasks)
+        tools_text = """## PRIMARY TOOLS
 
-**python** - Execute Python code with FULL system access
-  - File operations: os, shutil, pathlib
-  - Web requests: requests, urllib  
-  - Data: json, csv, pandas (if installed)
-  - Anything Python can do!
-  Example: {"tool": "python", "args": {"code": "import os\\nprint(os.listdir('.'))"}}
-
-**shell** - Run any shell command
+**shell** - Run any shell command (PREFERRED for simple tasks)
   Example: {"tool": "shell", "args": {"command": "ls -la ~/Downloads"}}
 
-## HELPER TOOLS (structured operations - use if python is complex)
+**python** - Execute Python code
+  Example: {"tool": "python", "args": {"code": "import os; print(os.listdir('.'))"}}
+
+## HELPER TOOLS (for complex operations)
 """
         # Add registered tools
         descriptions = {
