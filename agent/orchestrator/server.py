@@ -340,11 +340,16 @@ async def run_agent(request: TaskRequest):
         })
     
     try:
+        # Get conversation history for context
+        history = get_session_history(session_id)
+        conv_history = [{"role": m.role, "content": m.content} for m in history]
+        
         agent = ReActAgent(
             tool_registry=tool_registry,
             sandbox=sandbox,
             on_progress=progress_callback,
-            max_iterations=15
+            max_iterations=15,
+            conversation_history=conv_history
         )
         
         # Run the agent

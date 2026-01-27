@@ -94,11 +94,13 @@ class ReActAgent:
         sandbox: Sandbox,
         on_progress: Optional[ProgressCallback] = None,
         max_iterations: int = MAX_ITERATIONS,
+        conversation_history: List[Dict[str, str]] = None,
     ):
         self.tool_registry = tool_registry
         self.sandbox = sandbox
         self.on_progress = on_progress
         self.max_iterations = max_iterations
+        self.conversation_history = conversation_history or []
     
     async def run(self, goal: str) -> AgentState:
         """
@@ -255,10 +257,14 @@ class ReActAgent:
         # Build the prompt with history
         history = self._build_history(state)
         
+        # Format conversation history
+        conv_history = self._format_conversation_history()
+        
         prompt = REACT_STEP_PROMPT.format(
             goal=state.goal,
             iteration=iteration,
             max_iterations=self.max_iterations,
+            conversation_history=conv_history,
             history=history,
             observation=self._format_observation(observation),
             context=json.dumps(state.context, indent=2, default=str)[:2000],  # Limit context size
@@ -427,6 +433,25 @@ class ReActAgent:
                 error = step.result.error or ""
                 lines.append(f"  Result: {status} - {output_preview or error}")
             lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _format_conversation_history(self) -> str:
+        """Format conversation history for context."""
+        if not self.conversation_history:
+            return "(new conversation)"
+        
+        lines = []
+        # Show last 5 exchanges (10 messages)
+        recent = self.conversation_history[-10:]
+        for msg in recent:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            # Truncate long messages
+            if len(content) > 200:
+                content = content[:200] + "..."
+            prefix = "User:" if role == "user" else "Assistant:"
+            lines.append(f"{prefix} {content}")
         
         return "\n".join(lines)
     

@@ -40,9 +40,12 @@ def run_agent(model_override: str = None):
 
 
 def _interactive_loop(model: str):
-    """Interactive agent loop."""
+    """Interactive agent loop with conversation memory."""
     console.clear()
     _show_welcome(model)
+    
+    # Conversation history for context
+    conversation_history = []
     
     while True:
         try:
@@ -62,9 +65,24 @@ def _interactive_loop(model: str):
             if user_input.lower() == "/clear":
                 console.clear()
                 _show_welcome(model)
+                conversation_history.clear()  # Also clear history
                 continue
             
-            _process_input_agentic(user_input, model)
+            result = _process_input_agentic(user_input, model, conversation_history)
+            
+            # Add to conversation history
+            if result:
+                conversation_history.append({
+                    "role": "user",
+                    "content": user_input
+                })
+                conversation_history.append({
+                    "role": "assistant", 
+                    "content": result
+                })
+                # Keep history manageable (last 10 exchanges)
+                if len(conversation_history) > 20:
+                    conversation_history = conversation_history[-20:]
             
         except KeyboardInterrupt:
             console.print("\n  [dim]Ctrl+C. Type 'quit' to exit.[/dim]\n")
@@ -73,8 +91,11 @@ def _interactive_loop(model: str):
             break
 
 
-def _process_input_agentic(user_input: str, model: str):
-    """Process input using the ReAct agentic loop."""
+def _process_input_agentic(user_input: str, model: str, conversation_history: list = None) -> Optional[str]:
+    """Process input using the ReAct agentic loop.
+    
+    Returns the assistant's response for conversation history.
+    """
     from agent.orchestrator.react_agent import ReActAgent
     from agent.orchestrator.deps import get_tool_registry, get_sandbox
     from agent.llm.client import LLMError
@@ -150,7 +171,8 @@ def _process_input_agentic(user_input: str, model: str):
             tool_registry=tool_registry,
             sandbox=sandbox,
             on_progress=on_progress,
-            max_iterations=15
+            max_iterations=15,
+            conversation_history=conversation_history or []
         )
         
         console.print(f"  [bold cyan]🤖 Working on your request...[/bold cyan]")
@@ -179,29 +201,40 @@ def _process_input_agentic(user_input: str, model: str):
         
         console.print()
         
+        # Get the response for history
+        response_text = None
+        
         # Show final result
         if state.status == "completed":
-            _show_agent_result(state, model)
+            response_text = _show_agent_result(state, model)
         elif state.status == "failed":
             console.print(f"  [red]✗ Failed: {state.error}[/red]")
+            response_text = f"Failed: {state.error}"
         elif state.status == "max_iterations":
             console.print(f"  [yellow]⚠ Reached max iterations without completing[/yellow]")
             if state.steps:
                 # Show what was accomplished
-                _show_agent_result(state, model)
+                response_text = _show_agent_result(state, model)
+        
+        return response_text
         
     except LLMError as e:
         print_error("AI Error", str(e))
+        return None
     except Exception as e:
         import traceback
         traceback.print_exc()
         print_error("Error", str(e))
+        return None
     
     console.print()
 
 
-def _show_agent_result(state, model: str):
-    """Display the agent's final result with context."""
+def _show_agent_result(state, model: str) -> str:
+    """Display the agent's final result with context.
+    
+    Returns the summary text for conversation history.
+    """
     from agent.llm.client import call_llm
     
     # Build summary from agent's work
@@ -232,6 +265,8 @@ Be concise and conversational. Focus on what was achieved."""
     
     # Show actual data from context if there's meaningful output
     _show_context_data(state.context)
+    
+    return summary
 
 
 def _show_context_data(context: dict):

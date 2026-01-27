@@ -248,12 +248,15 @@ Key behaviors:
 
 REACT_STEP_PROMPT = """You are LocalCowork, an AI agent. Respond in JSON only.
 
-## USER REQUEST
+## CONVERSATION HISTORY
+{conversation_history}
+
+## CURRENT REQUEST
 {goal}
 
 ## STEP {iteration} of {max_iterations}
 
-## HISTORY
+## HISTORY (this request)
 {history}
 
 ## LAST OBSERVATION
@@ -267,7 +270,10 @@ REACT_STEP_PROMPT = """You are LocalCowork, an AI agent. Respond in JSON only.
 
 ## DECIDE WHAT TO DO
 
-If the request is a GREETING or QUESTION (like "hello", "what can you do"):
+IMPORTANT: Check conversation history! If user says "yes", "ok", "proceed", "continue" etc.,
+they are responding to YOUR previous message. Continue with what you offered to do.
+
+If the request is a GREETING or standalone QUESTION:
 → Set is_complete=true and provide response
 
 If the request needs ACTION:
