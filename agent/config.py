@@ -64,14 +64,15 @@ class Settings(BaseSettings):
         return str(Path(self.task_history_file).expanduser())
 
 
-@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance.
+    """Get settings instance.
     
-    Uses lru_cache to ensure settings are only loaded once.
+    Creates a new instance each time to pick up .env changes.
+    For performance-critical code, cache the result yourself.
     """
     return Settings()
 
 
-# Convenience alias
+# Default settings instance (loaded at import time)
+# If you change .env, restart the app or call get_settings() again
 settings = get_settings()
