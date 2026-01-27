@@ -2,13 +2,13 @@
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 def read_json(path: str) -> Any:
     """Read and parse a JSON file."""
     p = Path(path).expanduser()
-    with open(p, 'r') as f:
+    with open(p, "r") as f:
         return json.load(f)
 
 
@@ -16,7 +16,7 @@ def write_json(path: str, data: Any, indent: int = 2) -> str:
     """Write data to a JSON file."""
     p = Path(path).expanduser()
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, 'w') as f:
+    with open(p, "w") as f:
         json.dump(data, f, indent=indent)
     return f"Wrote JSON to {p}"
 
@@ -29,19 +29,19 @@ def parse_json(text: str) -> Any:
 def query_json(data: Any, path: str) -> Any:
     """
     Query JSON data using a simple dot-notation path.
-    Supports: 
+    Supports:
       - "key" - access dict key
       - "key.nested" - nested access
       - "[0]" - array index
       - "key[0].nested" - combined
-    
+
     Example: query_json(data, "users[0].name")
     """
     import re
-    
+
     # Parse path into tokens
-    tokens = re.findall(r'(\w+)|\[(\d+)\]', path)
-    
+    tokens = re.findall(r"(\w+)|\[(\d+)\]", path)
+
     result = data
     for token in tokens:
         key, index = token
@@ -59,7 +59,7 @@ def query_json(data: Any, path: str) -> Any:
                     return None
             else:
                 return None
-    
+
     return result
 
 
@@ -77,7 +77,7 @@ def map_json(data: list, keys: list) -> list:
     """
     if not isinstance(data, list):
         raise ValueError("map_json expects a list")
-    
+
     result = []
     for item in data:
         if isinstance(item, dict):
@@ -100,10 +100,10 @@ def flatten_json(data: dict, prefix: str = "", sep: str = ".") -> dict:
     Example: {"a": {"b": 1}} -> {"a.b": 1}
     """
     items = {}
-    
+
     for key, value in data.items():
         new_key = f"{prefix}{sep}{key}" if prefix else key
-        
+
         if isinstance(value, dict):
             items.update(flatten_json(value, new_key, sep))
         elif isinstance(value, list):
@@ -114,7 +114,7 @@ def flatten_json(data: dict, prefix: str = "", sep: str = ".") -> dict:
                     items[f"{new_key}[{i}]"] = item
         else:
             items[new_key] = value
-    
+
     return items
 
 
@@ -123,13 +123,14 @@ def diff_json(obj1: Any, obj2: Any) -> dict:
     Compare two JSON objects and return differences.
     Returns {"added": [], "removed": [], "changed": []}.
     """
+
     def _diff(a, b, path=""):
         changes = {"added": [], "removed": [], "changed": []}
-        
-        if type(a) != type(b):
+
+        if not isinstance(a, type(b)):
             changes["changed"].append({"path": path, "from": a, "to": b})
             return changes
-            
+
         if isinstance(a, dict):
             all_keys = set(a.keys()) | set(b.keys())
             for key in all_keys:
@@ -143,16 +144,16 @@ def diff_json(obj1: Any, obj2: Any) -> dict:
                     changes["added"].extend(sub["added"])
                     changes["removed"].extend(sub["removed"])
                     changes["changed"].extend(sub["changed"])
-                    
+
         elif isinstance(a, list):
             if a != b:
                 changes["changed"].append({"path": path, "from": a, "to": b})
         else:
             if a != b:
                 changes["changed"].append({"path": path, "from": a, "to": b})
-        
+
         return changes
-    
+
     return _diff(obj1, obj2)
 
 
@@ -173,7 +174,9 @@ def dispatch(op: str, **kwargs) -> Any:
     if op == "merge":
         return merge_json(*kwargs.get("objects", []))
     if op == "flatten":
-        return flatten_json(kwargs["data"], kwargs.get("prefix", ""), kwargs.get("sep", "."))
+        return flatten_json(
+            kwargs["data"], kwargs.get("prefix", ""), kwargs.get("sep", ".")
+        )
     if op == "diff":
         return diff_json(kwargs["obj1"], kwargs["obj2"])
     raise ValueError(f"Unsupported json op: {op}")

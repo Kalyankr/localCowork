@@ -17,7 +17,7 @@ from agent.sandbox.sandbox_runner import Sandbox
 def get_tool_registry() -> ToolRegistry:
     """
     Get the singleton tool registry with all tools registered.
-    
+
     Uses lru_cache to ensure only one instance is created.
     """
     from agent.tools import (
@@ -32,7 +32,7 @@ def get_tool_registry() -> ToolRegistry:
         archive_tools,
         chat_tools,
     )
-    
+
     registry = ToolRegistry()
     registry.register("file_op", file_tools.dispatch)
     registry.register("markdown_op", markdown_tools.dispatch)
@@ -44,7 +44,7 @@ def get_tool_registry() -> ToolRegistry:
     registry.register("json_op", json_tools.dispatch)
     registry.register("archive_op", archive_tools.dispatch)
     registry.register("chat_op", chat_tools.dispatch)
-    
+
     return registry
 
 
@@ -52,7 +52,7 @@ def get_tool_registry() -> ToolRegistry:
 def get_sandbox() -> Sandbox:
     """
     Get the singleton sandbox instance.
-    
+
     Uses lru_cache to ensure only one instance is created.
     """
     return Sandbox()
@@ -62,17 +62,18 @@ def get_sandbox() -> Sandbox:
 def get_task_manager():
     """
     Get the singleton task manager instance.
-    
+
     Uses lru_cache to ensure only one instance is created.
     """
     from agent.orchestrator.task_manager import TaskManager
+
     return TaskManager()
 
 
 def get_dependencies() -> Tuple[ToolRegistry, Sandbox]:
     """
     Get both tool registry and sandbox as a tuple.
-    
+
     Convenience function for components that need both.
     """
     return get_tool_registry(), get_sandbox()

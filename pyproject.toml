@@ -27,3 +27,8 @@ dev = [
 
 [project.scripts]
 localcowork = "agent.cli:cli"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.14",
+]

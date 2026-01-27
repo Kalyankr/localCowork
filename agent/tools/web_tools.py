@@ -4,7 +4,6 @@ import requests
 import time
 import logging
 from urllib.parse import quote_plus
-from typing import Optional
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -18,6 +17,7 @@ MAX_CONTENT_SIZE = 50000
 
 class WebOperationError(Exception):
     """Exception raised for web operation errors."""
+
     pass
 
 
@@ -32,7 +32,7 @@ def _make_request(
     **kwargs,
 ) -> requests.Response:
     """Make an HTTP request with retry logic and exponential backoff.
-    
+
     Args:
         url: URL to request
         method: HTTP method
@@ -42,19 +42,17 @@ def _make_request(
         headers: Optional custom headers
         stream: Whether to stream the response
         **kwargs: Additional arguments to pass to requests
-        
+
     Returns:
         Response object
-        
+
     Raises:
         WebOperationError: If all retries fail
     """
-    default_headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; LocalCowork/1.0)"
-    }
+    default_headers = {"User-Agent": "Mozilla/5.0 (compatible; LocalCowork/1.0)"}
     if headers:
         default_headers.update(headers)
-    
+
     last_error = None
     for attempt in range(retries):
         try:
@@ -70,7 +68,9 @@ def _make_request(
             return response
         except requests.exceptions.Timeout as e:
             last_error = e
-            logger.warning(f"Request timed out (attempt {attempt + 1}/{retries}): {url}")
+            logger.warning(
+                f"Request timed out (attempt {attempt + 1}/{retries}): {url}"
+            )
         except requests.exceptions.ConnectionError as e:
             last_error = e
             logger.warning(f"Connection error (attempt {attempt + 1}/{retries}): {url}")
@@ -83,12 +83,12 @@ def _make_request(
         except requests.exceptions.RequestException as e:
             last_error = e
             logger.warning(f"Request failed (attempt {attempt + 1}/{retries}): {e}")
-        
+
         if attempt < retries - 1:
-            sleep_time = backoff ** attempt
+            sleep_time = backoff**attempt
             logger.debug(f"Retrying in {sleep_time:.1f}s...")
             time.sleep(sleep_time)
-    
+
     raise WebOperationError(f"Request failed after {retries} attempts: {last_error}")
 
 
@@ -100,25 +100,25 @@ def fetch_url(
 ) -> dict:
     """
     Fetch content from a URL with retry logic.
-    
+
     Args:
         url: URL to fetch
         extract_text: If True, extract text from HTML
         timeout: Request timeout in seconds
         retries: Number of retry attempts
-        
+
     Returns:
         Dict with 'content', 'status_code', 'content_type', 'url'
     """
     try:
         response = _make_request(url, timeout=timeout, retries=retries)
         content_type = response.headers.get("Content-Type", "")
-        
+
         if extract_text and "text/html" in content_type:
             content = _extract_text_from_html(response.text)
         else:
             content = response.text
-        
+
         return {
             "content": content[:MAX_CONTENT_SIZE],
             "status_code": response.status_code,
@@ -126,7 +126,7 @@ def fetch_url(
             "url": url,
             "content_length": len(content),
         }
-        
+
     except WebOperationError as e:
         return {"error": str(e), "url": url}
     except Exception as e:
@@ -136,31 +136,31 @@ def fetch_url(
 def _extract_text_from_html(html: str) -> str:
     """Extract readable text from HTML content."""
     from html.parser import HTMLParser
-    
+
     class TextExtractor(HTMLParser):
         def __init__(self):
             super().__init__()
             self.text = []
-            self.skip_tags = {'script', 'style', 'head', 'meta', 'link', 'noscript'}
+            self.skip_tags = {"script", "style", "head", "meta", "link", "noscript"}
             self.current_tag = None
             self.tag_stack = []
-            
+
         def handle_starttag(self, tag, attrs):
             self.tag_stack.append(tag)
             self.current_tag = tag
-            
+
         def handle_endtag(self, tag):
             if self.tag_stack and self.tag_stack[-1] == tag:
                 self.tag_stack.pop()
             self.current_tag = self.tag_stack[-1] if self.tag_stack else None
-            
+
         def handle_data(self, data):
             # Check if any parent tag is in skip_tags
             if not any(t in self.skip_tags for t in self.tag_stack):
                 text = data.strip()
                 if text:
                     self.text.append(text)
-    
+
     parser = TextExtractor()
     try:
         parser.feed(html)
@@ -169,26 +169,28 @@ def _extract_text_from_html(html: str) -> str:
     return "\n".join(parser.text)
 
 
-def search_web(query: str, num_results: int = 5, retries: int = DEFAULT_RETRIES) -> list:
+def search_web(
+    query: str, num_results: int = 5, retries: int = DEFAULT_RETRIES
+) -> list:
     """
     Search the web using DuckDuckGo HTML (no API key needed).
-    
+
     Args:
         query: Search query
         num_results: Number of results to return
         retries: Number of retry attempts
-        
+
     Returns:
         List of results with 'title', 'url', 'snippet'
     """
     search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-    
+
     try:
         response = _make_request(search_url, timeout=15, retries=retries)
-        
+
         # Parse results from HTML
         from html.parser import HTMLParser
-        
+
         class DDGParser(HTMLParser):
             def __init__(self):
                 super().__init__()
@@ -197,7 +199,7 @@ def search_web(query: str, num_results: int = 5, retries: int = DEFAULT_RETRIES)
                 self.in_result = False
                 self.in_title = False
                 self.in_snippet = False
-                
+
             def handle_starttag(self, tag, attrs):
                 attrs = dict(attrs)
                 if tag == "a" and attrs.get("class") == "result__a":
@@ -205,7 +207,7 @@ def search_web(query: str, num_results: int = 5, retries: int = DEFAULT_RETRIES)
                     self.current["url"] = attrs.get("href", "")
                 elif tag == "a" and "result__snippet" in attrs.get("class", ""):
                     self.in_snippet = True
-                    
+
             def handle_endtag(self, tag):
                 if tag == "a" and self.in_title:
                     self.in_title = False
@@ -214,18 +216,20 @@ def search_web(query: str, num_results: int = 5, retries: int = DEFAULT_RETRIES)
                     if self.current.get("title") and self.current.get("url"):
                         self.results.append(self.current)
                     self.current = {}
-                    
+
             def handle_data(self, data):
                 if self.in_title:
                     self.current["title"] = data.strip()
                 elif self.in_snippet:
-                    self.current["snippet"] = self.current.get("snippet", "") + data.strip()
-        
+                    self.current["snippet"] = (
+                        self.current.get("snippet", "") + data.strip()
+                    )
+
         parser = DDGParser()
         parser.feed(response.text)
-        
+
         return parser.results[:num_results]
-        
+
     except WebOperationError as e:
         return [{"error": str(e)}]
     except Exception as e:
@@ -241,19 +245,19 @@ def download_file(
 ) -> dict:
     """
     Download a file from URL to destination path with retry logic.
-    
+
     Args:
         url: URL to download
         dest: Destination file path
         timeout: Request timeout in seconds
         retries: Number of retry attempts
         overwrite: If False, skip download if file exists
-        
+
     Returns:
         Dict with download info or error
     """
     dest_path = Path(dest).expanduser()
-    
+
     # Check if file exists
     if dest_path.exists() and not overwrite:
         return {
@@ -261,21 +265,19 @@ def download_file(
             "message": f"File already exists: {dest_path}",
             "path": str(dest_path),
         }
-    
+
     try:
         response = _make_request(url, timeout=timeout, retries=retries, stream=True)
-        
+
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Get file size from headers if available
-        total_size = int(response.headers.get('content-length', 0))
+
         downloaded = 0
-        
-        with open(dest_path, 'wb') as f:
+
+        with open(dest_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
                 downloaded += len(chunk)
-        
+
         return {
             "status": "success",
             "message": f"Downloaded {url} → {dest_path}",
@@ -283,7 +285,7 @@ def download_file(
             "size": downloaded,
             "size_human": _format_size(downloaded),
         }
-        
+
     except WebOperationError as e:
         return {"status": "error", "error": str(e), "url": url}
     except Exception as e:
@@ -293,11 +295,11 @@ def download_file(
 def check_url(url: str, timeout: int = 10) -> dict:
     """
     Check if a URL is accessible without downloading full content.
-    
+
     Args:
         url: URL to check
         timeout: Request timeout in seconds
-        
+
     Returns:
         Dict with status info
     """
@@ -308,7 +310,7 @@ def check_url(url: str, timeout: int = 10) -> dict:
             timeout=timeout,
             allow_redirects=True,
         )
-        
+
         return {
             "accessible": response.status_code < 400,
             "status_code": response.status_code,
@@ -327,7 +329,7 @@ def check_url(url: str, timeout: int = 10) -> dict:
 
 def _format_size(size: int) -> str:
     """Format bytes to human readable string."""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
         if size < 1024:
             return f"{size:.1f} {unit}"
         size /= 1024
@@ -336,7 +338,7 @@ def _format_size(size: int) -> str:
 
 def dispatch(op: str, **kwargs) -> dict | list | str:
     """Dispatch web operations.
-    
+
     Supported operations:
         - fetch: Fetch URL content
         - search: Search web using DuckDuckGo

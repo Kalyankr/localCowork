@@ -1,6 +1,5 @@
 import logging
-from typing import Optional
-from agent.llm.client import call_llm, LLMError
+from agent.llm.client import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +32,17 @@ def dispatch(op: str, **kwargs) -> str:
     """Dispatch text operations."""
     # Support multiple input keys for flexibility
     text = kwargs.get("text") or kwargs.get("content") or kwargs.get("input")
-    
+
     if not text:
         # If text is a list (e.g. from a previous step), join it
         files = kwargs.get("files")
         if files and isinstance(files, list):
             text = "\n".join(str(f) for f in files)
-    
+
     if not text:
-        raise ValueError("No input text provided to text_op. Use 'text', 'content', or 'input' key.")
+        raise ValueError(
+            "No input text provided to text_op. Use 'text', 'content', or 'input' key."
+        )
 
     if op == "summarize":
         return summarize_text(text)
@@ -49,5 +50,5 @@ def dispatch(op: str, **kwargs) -> str:
         return extract_info(text, kwargs.get("what", "key information"))
     if op == "transform":
         return transform_text(text, kwargs.get("instruction", "beautify"))
-    
+
     raise ValueError(f"Unsupported text op: {op}")

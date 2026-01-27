@@ -6,8 +6,13 @@ All task execution uses the ReAct agent (shell + python).
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from agent.orchestrator.models import (
-    TaskRequest, TaskSummary, TaskDetail, ConversationMessage, TaskState,
-    WebSocketMessage, WSMessageType,
+    TaskRequest,
+    TaskSummary,
+    TaskDetail,
+    ConversationMessage,
+    TaskState,
+    WebSocketMessage,
+    WSMessageType,
 )
 from pydantic import ValidationError
 from agent.orchestrator.deps import get_tool_registry, get_sandbox, get_task_manager
@@ -49,53 +54,56 @@ MAX_HISTORY = settings.max_history_messages
 # WebSocket Manager
 # =============================================================================
 
+
 class ConnectionManager:
     def __init__(self):
         self.connections: Set[WebSocket] = set()
         self.task_subs: Dict[str, Set[WebSocket]] = defaultdict(set)
-    
+
     async def connect(self, ws: WebSocket):
         await ws.accept()
         self.connections.add(ws)
-    
+
     def disconnect(self, ws: WebSocket):
         self.connections.discard(ws)
         for subs in self.task_subs.values():
             subs.discard(ws)
-    
+
     def subscribe(self, ws: WebSocket, task_id: str):
         self.task_subs[task_id].add(ws)
-    
+
     async def broadcast(self, task_id: str, msg: WebSocketMessage):
         """Broadcast a typed message to all subscribers of a task."""
         dead = set()
         for conn in self.task_subs.get(task_id, set()):
             try:
                 await conn.send_json(msg.model_dump())
-            except:
+            except Exception:
                 dead.add(conn)
         for conn in dead:
             self.disconnect(conn)
-    
+
     async def broadcast_all(self, msg: WebSocketMessage):
         """Broadcast a typed message to all connected clients."""
         dead = set()
         for conn in self.connections:
             try:
                 await conn.send_json(msg.model_dump())
-            except:
+            except Exception:
                 dead.add(conn)
         for conn in dead:
             self.disconnect(conn)
-    
+
     async def send_step_output(self, task_id: str, step: str, output: any):
         """Send step output to task subscribers."""
-        await self.broadcast(task_id, WebSocketMessage.step_output(task_id, step, output))
-    
+        await self.broadcast(
+            task_id, WebSocketMessage.step_output(task_id, step, output)
+        )
+
     async def send_task_complete(self, task_id: str, summary: str):
         """Notify subscribers that a task completed."""
         await self.broadcast(task_id, WebSocketMessage.task_complete(task_id, summary))
-    
+
     async def send_task_error(self, task_id: str, error: str):
         """Notify subscribers of a task error."""
         await self.broadcast(task_id, WebSocketMessage.task_error(task_id, error))
@@ -108,9 +116,12 @@ ws = ConnectionManager()
 # Session Helpers
 # =============================================================================
 
+
 def cleanup_sessions():
     now = time.time()
-    expired = [s for s, t in conversation_timestamps.items() if now - t > SESSION_TIMEOUT]
+    expired = [
+        s for s, t in conversation_timestamps.items() if now - t > SESSION_TIMEOUT
+    ]
     for s in expired:
         conversation_history.pop(s, None)
         conversation_timestamps.pop(s, None)
@@ -122,20 +133,25 @@ def get_history(session_id: str) -> List[ConversationMessage]:
 
 
 def add_message(session_id: str, role: str, content: str):
-    conversation_history[session_id].append(ConversationMessage(role=role, content=content))
+    conversation_history[session_id].append(
+        ConversationMessage(role=role, content=content)
+    )
     conversation_timestamps[session_id] = time.time()
     if len(conversation_history[session_id]) > MAX_HISTORY:
-        conversation_history[session_id] = conversation_history[session_id][-MAX_HISTORY:]
+        conversation_history[session_id] = conversation_history[session_id][
+            -MAX_HISTORY:
+        ]
 
 
 # =============================================================================
 # WebSocket Endpoint
 # =============================================================================
 
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time task updates.
-    
+
     Supported messages:
     - {"type": "subscribe", "task_id": "..."} - Subscribe to task updates
     - {"type": "unsubscribe", "task_id": "..."} - Unsubscribe from task
@@ -147,7 +163,7 @@ async def websocket_endpoint(websocket: WebSocket):
             raw_data = await websocket.receive_json()
             try:
                 msg = WebSocketMessage.model_validate(raw_data)
-                
+
                 if msg.type == WSMessageType.SUBSCRIBE:
                     if msg.task_id:
                         ws.subscribe(websocket, msg.task_id)
@@ -156,20 +172,24 @@ async def websocket_endpoint(websocket: WebSocket):
                     else:
                         error = WebSocketMessage.error("task_id required for subscribe")
                         await websocket.send_json(error.model_dump())
-                
+
                 elif msg.type == WSMessageType.UNSUBSCRIBE:
                     if msg.task_id:
                         ws.task_subs.get(msg.task_id, set()).discard(websocket)
-                        await websocket.send_json({"type": "unsubscribed", "task_id": msg.task_id})
-                
+                        await websocket.send_json(
+                            {"type": "unsubscribed", "task_id": msg.task_id}
+                        )
+
                 elif msg.type == WSMessageType.PING:
                     response = WebSocketMessage.pong()
                     await websocket.send_json(response.model_dump())
-                    
+
             except ValidationError as e:
-                error = WebSocketMessage.error(f"Invalid message format: {e.error_count()} errors")
+                error = WebSocketMessage.error(
+                    f"Invalid message format: {e.error_count()} errors"
+                )
                 await websocket.send_json(error.model_dump())
-                
+
     except WebSocketDisconnect:
         ws.disconnect(websocket)
 
@@ -177,6 +197,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # =============================================================================
 # Main Endpoints
 # =============================================================================
+
 
 @app.get("/")
 async def root():
@@ -188,59 +209,65 @@ async def root():
 async def run_task(request: TaskRequest):
     """
     Run a task using the ReAct agent.
-    
+
     The agent uses shell commands and Python to accomplish tasks,
     adapting step-by-step based on results.
     """
     from agent.orchestrator.react_agent import ReActAgent
-    
+
     session_id = request.session_id or str(uuid.uuid4())
     add_message(session_id, "user", request.request)
-    
+
     # Create task
     task = task_manager.create_task(request.request, session_id)
     task_manager.update_state(task.id, TMState.EXECUTING)
-    
+
     async def on_progress(iteration: int, status: str, thought: str, action: str):
-        await ws.broadcast(task.id, {
-            "type": "progress",
-            "task_id": task.id,
-            "iteration": iteration,
-            "status": status,
-            "thought": thought,
-            "action": action,
-        })
-    
+        await ws.broadcast(
+            task.id,
+            {
+                "type": "progress",
+                "task_id": task.id,
+                "iteration": iteration,
+                "status": status,
+                "thought": thought,
+                "action": action,
+            },
+        )
+
     try:
         history = get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
-        
+
         agent = ReActAgent(
             tool_registry=tool_registry,
             sandbox=sandbox,
             on_progress=on_progress,
             max_iterations=15,
-            conversation_history=conv
+            conversation_history=conv,
         )
-        
+
         state = await agent.run(request.request)
-        
+
         if state.status == "completed":
             task_manager.update_state(task.id, TMState.COMPLETED)
             task_manager.set_summary(task.id, state.final_answer or "Done")
         else:
             task_manager.update_state(task.id, TMState.FAILED, state.error)
-        
+
         if state.final_answer:
             add_message(session_id, "assistant", state.final_answer)
-        
-        await ws.broadcast(task.id, {
-            "type": "complete",
-            "task_id": task.id,
-            "status": state.status,
-            "response": state.final_answer,
-        })
-        
+
+        await ws.broadcast(
+            task.id,
+            {
+                "type": "complete",
+                "task_id": task.id,
+                "status": state.status,
+                "response": state.final_answer,
+            },
+        )
+
         return {
             "task_id": task.id,
             "session_id": session_id,
@@ -248,7 +275,7 @@ async def run_task(request: TaskRequest):
             "response": state.final_answer,
             "steps": len(state.steps),
         }
-    
+
     except LLMError as e:
         task_manager.update_state(task.id, TMState.FAILED, str(e))
         raise HTTPException(status_code=503, detail=str(e))
@@ -278,7 +305,7 @@ async def list_tasks(
             states = [TMState(state)]
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid state: {state}")
-    
+
     tasks = task_manager.get_tasks(session_id=session_id, states=states, limit=limit)
     return [_to_summary(t) for t in tasks]
 
@@ -298,10 +325,10 @@ async def cancel_task(task_id: str):
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if task.state in {TMState.COMPLETED, TMState.FAILED, TMState.CANCELLED}:
         raise HTTPException(status_code=400, detail=f"Task already {task.state.value}")
-    
+
     task_manager.update_state(task_id, TMState.CANCELLED)
     await ws.broadcast(task_id, {"type": "cancelled", "task_id": task_id})
     return {"status": "cancelled", "task_id": task_id}
@@ -316,6 +343,7 @@ async def health():
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def _to_summary(task) -> TaskSummary:
     return TaskSummary(

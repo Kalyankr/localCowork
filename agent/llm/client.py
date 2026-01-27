@@ -11,7 +11,7 @@ instead of raw HTTP requests. Benefits:
 import json
 import logging
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
 import ollama
 from ollama import ResponseError, RequestError
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class LLMError(Exception):
     """Custom exception for LLM-related errors."""
+
     pass
 
 
@@ -46,36 +47,38 @@ def _get_client() -> ollama.Client:
 def call_llm(prompt: str, force_json: bool = False) -> str:
     """
     Calls Ollama and returns raw text output.
-    
+
     Args:
         prompt: The prompt to send to the model
         force_json: If True, use Ollama's JSON mode to force valid JSON output
-        
+
     Returns:
         The model's response text
-        
+
     Raises:
         LLMError: If the LLM request fails.
     """
     try:
         client = _get_client()
         s = get_settings()
-        logger.debug(f"Calling LLM with model={s.ollama_model}, force_json={force_json}")
-        
+        logger.debug(
+            f"Calling LLM with model={s.ollama_model}, force_json={force_json}"
+        )
+
         kwargs = {
             "model": s.ollama_model,
             "prompt": prompt,
             "options": {"num_predict": s.max_tokens},
         }
-        
+
         # Use Ollama's native JSON mode if requested
         if force_json:
             kwargs["format"] = "json"
-        
+
         response = client.generate(**kwargs)
-        
+
         return response.response
-        
+
     except RequestError as e:
         raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
     except ResponseError as e:
@@ -87,14 +90,14 @@ def call_llm(prompt: str, force_json: bool = False) -> str:
 def call_llm_chat(messages: List[Dict[str, str]], model: str = None) -> str:
     """
     Calls Ollama with chat messages format.
-    
+
     Args:
         messages: List of message dicts with 'role' and 'content' keys
         model: Optional model override
-        
+
     Returns:
         The assistant's response content
-        
+
     Raises:
         LLMError: If the LLM request fails.
     """
@@ -102,16 +105,18 @@ def call_llm_chat(messages: List[Dict[str, str]], model: str = None) -> str:
         client = _get_client()
         s = get_settings()
         active_model = model or s.ollama_model
-        logger.debug(f"Calling LLM chat with model={active_model}, {len(messages)} messages")
-        
+        logger.debug(
+            f"Calling LLM chat with model={active_model}, {len(messages)} messages"
+        )
+
         response = client.chat(
             model=active_model,
             messages=messages,
             options={"num_predict": s.max_tokens},
         )
-        
+
         return response.message.content
-        
+
     except RequestError as e:
         raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
     except ResponseError as e:
@@ -125,39 +130,40 @@ def call_llm_json(prompt: str) -> dict:
     Calls Ollama and guarantees valid JSON output.
     Uses Ollama's native JSON mode for reliable structured output.
     Retries with repair logic if JSON parsing still fails.
-    
+
     Args:
         prompt: The initial prompt to send
-        
+
     Returns:
         Parsed JSON as a dictionary
-        
+
     Raises:
         LLMError: If JSON parsing fails after all retries
     """
-    last_error = None
     s = get_settings()
     max_retries = s.max_json_retries
-    
+
     for attempt in range(max_retries + 1):
         try:
             current_prompt = prompt
             if attempt > 0:
                 logger.info(f"JSON retry attempt {attempt + 1}/{max_retries + 1}")
-                current_prompt = prompt + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
-            
+                current_prompt = (
+                    prompt
+                    + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
+                )
+
             # Use Ollama's native JSON mode for reliable output
             raw = call_llm(current_prompt, force_json=True)
-            
+
             # Try direct parse first
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
                 # Try repair as fallback
                 return repair_json(raw)
-                
+
         except (json.JSONDecodeError, ValueError) as e:
-            last_error = e
             logger.warning(f"JSON parse failed (attempt {attempt + 1}): {e}")
             if attempt < max_retries:
                 continue
@@ -178,8 +184,7 @@ def repair_json(text: str) -> dict:
     - Missing/extra braces/brackets
     - Markdown code blocks
     """
-    original_text = text
-    
+
     # 0. Remove markdown code blocks if present
     if "```json" in text:
         text = re.sub(r"```json\s*", "", text)
@@ -187,46 +192,46 @@ def repair_json(text: str) -> dict:
     elif "```" in text:
         text = re.sub(r"```\w*\s*", "", text)
         text = re.sub(r"```\s*", "", text)
-    
+
     # 1. Extract the cleanest JSON-like block
-    start_idx = text.find('{')
+    start_idx = text.find("{")
     if start_idx == -1:
         raise ValueError("No JSON object found in response")
-    
+
     # Use a simple stack-based approach to find the end of the object
     stack = 0
     end_idx = -1
     in_string = False
     escape = False
-    
+
     for i in range(start_idx, len(text)):
         char = text[i]
-        
+
         if char == '"' and not escape:
             in_string = not in_string
-        elif char == '\\' and in_string:
+        elif char == "\\" and in_string:
             escape = not escape
             continue
         elif not in_string:
-            if char == '{':
+            if char == "{":
                 stack += 1
-            elif char == '}':
+            elif char == "}":
                 stack -= 1
                 if stack == 0:
                     end_idx = i + 1
                     break
-        
+
         escape = False
-    
+
     if end_idx == -1:
         # Try to find a closing brace anyway
-        last_brace = text.rfind('}')
+        last_brace = text.rfind("}")
         if last_brace > start_idx:
             end_idx = last_brace + 1
         else:
             json_like = text[start_idx:] + "}"
             end_idx = len(json_like) + start_idx
-    
+
     json_like = text[start_idx:end_idx] if end_idx != -1 else text[start_idx:]
 
     # 2. Fix literal newlines inside string values
@@ -237,12 +242,12 @@ def repair_json(text: str) -> dict:
         if char == '"' and not escape:
             in_string = not in_string
             new_json += char
-        elif char == '\\' and in_string and not escape:
+        elif char == "\\" and in_string and not escape:
             escape = True
             new_json += char
-        elif char == '\n' and in_string:
+        elif char == "\n" and in_string:
             new_json += "\\n"
-        elif char == '\t' and in_string:
+        elif char == "\t" and in_string:
             new_json += "\\t"
         else:
             new_json += char
@@ -253,20 +258,28 @@ def repair_json(text: str) -> dict:
     json_like = re.sub(r",\s*}", "}", json_like)  # Trailing comma before }
     json_like = re.sub(r",\s*]", "]", json_like)  # Trailing comma before ]
     json_like = re.sub(r"'\s*:", '":', json_like)  # Single quotes for keys
-    json_like = re.sub(r":\s*'([^']*)'", r': "\1"', json_like)  # Single quotes for values
+    json_like = re.sub(
+        r":\s*'([^']*)'", r': "\1"', json_like
+    )  # Single quotes for values
 
     try:
         return json.loads(json_like)
     except json.JSONDecodeError:
         pass
-    
+
     # 4. Try to fix unquoted values
     try:
+
         def quote_val(m):
             val = m.group(2).strip()
-            if not (val.startswith('"') or val.startswith("'") or 
-                    val.startswith("[") or val.startswith("{") or 
-                    val.isdigit() or val in ["true", "false", "null"]):
+            if not (
+                val.startswith('"')
+                or val.startswith("'")
+                or val.startswith("[")
+                or val.startswith("{")
+                or val.isdigit()
+                or val in ["true", "false", "null"]
+            ):
                 return f'"{m.group(1)}": "{val}"'
             return m.group(0)
 
@@ -274,21 +287,21 @@ def repair_json(text: str) -> dict:
         return json.loads(fixed)
     except json.JSONDecodeError:
         pass
-    
+
     # 5. Last resort - try to extract just the steps array
     try:
         steps_match = re.search(r'"steps"\s*:\s*\[(.*?)\]', json_like, re.DOTALL)
         if steps_match:
             return {"steps": json.loads(f"[{steps_match.group(1)}]")}
-    except:
+    except (json.JSONDecodeError, ValueError):
         pass
-    
-    raise ValueError(f"Could not parse response as JSON")
+
+    raise ValueError("Could not parse response as JSON")
 
 
 def list_models() -> List[str]:
     """List available models from Ollama.
-    
+
     Returns:
         List of model names
     """
@@ -303,28 +316,25 @@ def list_models() -> List[str]:
 
 def check_model_exists(model_name: str = None) -> bool:
     """Check if a model exists in Ollama.
-    
+
     Args:
         model_name: Model to check, defaults to configured model
-        
+
     Returns:
         True if model exists
     """
-    model = model_name or MODEL
+    model = model_name or get_settings().ollama_model
     try:
         models = list_models()
         # Check for exact match or match without tag
-        return any(
-            m == model or m.split(":")[0] == model.split(":")[0]
-            for m in models
-        )
+        return any(m == model or m.split(":")[0] == model.split(":")[0] for m in models)
     except Exception:
         return False
 
 
 def check_ollama_health() -> tuple[bool, Optional[str]]:
     """Check if Ollama is running and accessible.
-    
+
     Returns:
         Tuple of (is_healthy, error_message)
     """
@@ -344,33 +354,36 @@ def check_ollama_health() -> tuple[bool, Optional[str]]:
 def call_llm_chat_stream(messages: List[Dict[str, str]], model: str = None):
     """
     Stream chat responses from Ollama.
-    
+
     Args:
         messages: List of message dicts with 'role' and 'content' keys
         model: Optional model override
-        
+
     Yields:
         String chunks of the response
-        
+
     Raises:
         LLMError: If the LLM request fails.
     """
     try:
         client = _get_client()
-        active_model = model or MODEL
-        logger.debug(f"Streaming LLM chat with model={active_model}, {len(messages)} messages")
-        
+        s = get_settings()
+        active_model = model or s.ollama_model
+        logger.debug(
+            f"Streaming LLM chat with model={active_model}, {len(messages)} messages"
+        )
+
         stream = client.chat(
             model=active_model,
             messages=messages,
-            options={"num_predict": settings.max_tokens},
+            options={"num_predict": s.max_tokens},
             stream=True,
         )
-        
+
         for chunk in stream:
             if chunk.message and chunk.message.content:
                 yield chunk.message.content
-                
+
     except RequestError as e:
         raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
     except ResponseError as e:

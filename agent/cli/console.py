@@ -5,29 +5,30 @@ from rich.theme import Theme
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.spinner import Spinner
 from rich import box
 
 # Custom theme for consistent styling
-THEME = Theme({
-    "info": "cyan",
-    "success": "green",
-    "warning": "yellow",
-    "error": "red",
-    "dim": "dim",
-    "highlight": "bold cyan",
-    "muted": "bright_black",
-    "accent": "magenta",
-    "step.pending": "dim",
-    "step.running": "bold yellow",
-    "step.success": "green",
-    "step.error": "red",
-    "step.skipped": "dim",
-    "input.border": "bright_black",
-    "input.prompt": "bold green",
-    "thinking": "bold yellow",
-    "executing": "bold cyan",
-})
+THEME = Theme(
+    {
+        "info": "cyan",
+        "success": "green",
+        "warning": "yellow",
+        "error": "red",
+        "dim": "dim",
+        "highlight": "bold cyan",
+        "muted": "bright_black",
+        "accent": "magenta",
+        "step.pending": "dim",
+        "step.running": "bold yellow",
+        "step.success": "green",
+        "step.error": "red",
+        "step.skipped": "dim",
+        "input.border": "bright_black",
+        "input.prompt": "bold green",
+        "thinking": "bold yellow",
+        "executing": "bold cyan",
+    }
+)
 
 # Global console instance
 console = Console(theme=THEME)
@@ -36,6 +37,7 @@ console = Console(theme=THEME)
 # Status icons
 class Icons:
     """Consistent icons across the CLI."""
+
     PENDING = "○"
     RUNNING = "●"
     SUCCESS = "✓"
@@ -144,11 +146,11 @@ def format_status(status: str) -> str:
 
 def friendly_error(error: str) -> tuple[str, str]:
     """Convert raw Python errors to user-friendly messages.
-    
+
     Returns: (friendly_message, technical_detail)
     """
     error_lower = error.lower()
-    
+
     # Error mappings
     mappings = [
         # File/path errors
@@ -178,16 +180,16 @@ def friendly_error(error: str) -> tuple[str, str]:
         # LLM errors
         (["ollama", "llm", "cannot connect"], "AI service error"),
     ]
-    
+
     for keywords, friendly_msg in mappings:
         if any(kw in error_lower for kw in keywords):
             detail = error.split(":")[-1].strip() if ":" in error else error
             return friendly_msg, detail[:80]
-    
+
     # Generic fallback
     if len(error) > 80:
         if ":" in error:
             return "Error", error.split(":")[-1].strip()[:60]
         return "Error", error[:60] + "…"
-    
+
     return "Error", error

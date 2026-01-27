@@ -8,20 +8,63 @@ from typing import Optional
 # Allowed commands (whitelist for safety)
 ALLOWED_COMMANDS = {
     # File inspection
-    "ls", "find", "du", "df", "wc", "head", "tail", "cat", "file", "stat",
-    # Text processing  
-    "grep", "awk", "sed", "sort", "uniq", "cut", "tr", "diff",
+    "ls",
+    "find",
+    "du",
+    "df",
+    "wc",
+    "head",
+    "tail",
+    "cat",
+    "file",
+    "stat",
+    # Text processing
+    "grep",
+    "awk",
+    "sed",
+    "sort",
+    "uniq",
+    "cut",
+    "tr",
+    "diff",
     # System info
-    "date", "whoami", "hostname", "uname", "uptime", "pwd", "which", "echo",
+    "date",
+    "whoami",
+    "hostname",
+    "uname",
+    "uptime",
+    "pwd",
+    "which",
+    "echo",
     # Other safe utilities
-    "tree", "basename", "dirname", "realpath",
+    "tree",
+    "basename",
+    "dirname",
+    "realpath",
 }
 
 # Explicitly blocked (even if in a pipeline)
 BLOCKED_COMMANDS = {
-    "rm", "rmdir", "sudo", "su", "chmod", "chown", "kill", "pkill",
-    "shutdown", "reboot", "dd", "mkfs", "mount", "umount", "fdisk",
-    "passwd", "useradd", "userdel", "curl", "wget",  # use web_op instead
+    "rm",
+    "rmdir",
+    "sudo",
+    "su",
+    "chmod",
+    "chown",
+    "kill",
+    "pkill",
+    "shutdown",
+    "reboot",
+    "dd",
+    "mkfs",
+    "mount",
+    "umount",
+    "fdisk",
+    "passwd",
+    "useradd",
+    "userdel",
+    "curl",
+    "wget",  # use web_op instead
 }
 
 
@@ -34,25 +77,25 @@ def is_command_safe(cmd: str) -> tuple[bool, str]:
         parts = shlex.split(cmd)
     except ValueError as e:
         return False, f"Invalid command syntax: {e}"
-    
+
     if not parts:
         return False, "Empty command"
-    
+
     base_cmd = Path(parts[0]).name  # Handle full paths like /bin/ls
-    
+
     # Check for blocked commands anywhere in the command
     all_words = set(cmd.split())
     for blocked in BLOCKED_COMMANDS:
         if blocked in all_words:
             return False, f"Command '{blocked}' is not allowed for safety"
-    
+
     # Check if base command is in whitelist
     if base_cmd not in ALLOWED_COMMANDS:
         return False, f"Command '{base_cmd}' is not in the allowed list"
-    
+
     # Check for dangerous patterns
     dangerous_patterns = [
-        (">" , "Output redirection"),
+        (">", "Output redirection"),
         (">>", "Append redirection"),
         ("|", "Pipes"),  # We could allow simple pipes later
         ("$(", "Command substitution"),
@@ -61,14 +104,14 @@ def is_command_safe(cmd: str) -> tuple[bool, str]:
         ("||", "Command chaining"),
         (";", "Command separator"),
     ]
-    
+
     for pattern, reason in dangerous_patterns:
         if pattern in cmd:
             # Allow simple pipes for grep/sort/etc
             if pattern == "|":
                 continue  # Allow pipes but validate each command
             return False, f"{reason} is not allowed"
-    
+
     return True, "OK"
 
 
@@ -89,9 +132,9 @@ def run_command(
                 "error": reason,
                 "allowed_commands": sorted(ALLOWED_COMMANDS),
             }
-    
+
     work_dir = Path(cwd).expanduser() if cwd else None
-    
+
     try:
         result = subprocess.run(
             cmd,
@@ -101,13 +144,13 @@ def run_command(
             text=True,
             timeout=timeout,
         )
-        
+
         return {
             "stdout": result.stdout[:50000],  # Limit output size
             "stderr": result.stderr[:5000],
             "returncode": result.returncode,
         }
-        
+
     except subprocess.TimeoutExpired:
         return {"error": f"Command timed out after {timeout}s"}
     except Exception as e:
@@ -117,7 +160,7 @@ def run_command(
 def get_system_info() -> dict:
     """Get basic system information."""
     import platform
-    
+
     return {
         "platform": platform.system(),
         "platform_release": platform.release(),

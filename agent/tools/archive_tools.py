@@ -4,11 +4,9 @@ import zipfile
 import tarfile
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from agent.security import (
     validate_path,
-    validate_filename,
     check_path_traversal_in_archive,
     PathTraversalError,
     InputValidationError,
@@ -17,6 +15,7 @@ from agent.security import (
 
 class ArchiveOperationError(Exception):
     """Error during archive operation."""
+
     pass
 
 
@@ -49,7 +48,7 @@ def create_zip(source: str | list, dest: str, compression: str = "deflate") -> s
     """
     dest_path = _safe_path(dest)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Validate compression option
     compression_map = {
         "deflate": zipfile.ZIP_DEFLATED,
@@ -57,12 +56,14 @@ def create_zip(source: str | list, dest: str, compression: str = "deflate") -> s
         "bzip2": zipfile.ZIP_BZIP2,
     }
     if compression not in compression_map:
-        raise ArchiveOperationError(f"Invalid compression: {compression}. Use: deflate, store, bzip2")
+        raise ArchiveOperationError(
+            f"Invalid compression: {compression}. Use: deflate, store, bzip2"
+        )
     comp = compression_map[compression]
-    
+
     sources = [source] if isinstance(source, str) else source
-    
-    with zipfile.ZipFile(dest_path, 'w', compression=comp) as zf:
+
+    with zipfile.ZipFile(dest_path, "w", compression=comp) as zf:
         for src in sources:
             src_path = _safe_path(src, must_exist=True)
             if src_path.is_file():
@@ -72,7 +73,7 @@ def create_zip(source: str | list, dest: str, compression: str = "deflate") -> s
                     if file.is_file():
                         arcname = file.relative_to(src_path.parent)
                         zf.write(file, arcname)
-    
+
     return f"Created ZIP archive: {dest_path}"
 
 
@@ -81,21 +82,21 @@ def extract_zip(source: str, dest: str) -> str:
     src_path = _safe_path(source, must_exist=True)
     dest_path = _safe_path(dest)
     dest_path.mkdir(parents=True, exist_ok=True)
-    
-    with zipfile.ZipFile(src_path, 'r') as zf:
+
+    with zipfile.ZipFile(src_path, "r") as zf:
         # Check for zip slip attack before extracting
         entries = [info.filename for info in zf.infolist()]
         _validate_archive_entries(entries, dest_path)
         zf.extractall(dest_path)
-    
+
     return f"Extracted ZIP to: {dest_path}"
 
 
 def list_zip(source: str) -> list:
     """List contents of a ZIP archive."""
     src_path = _safe_path(source, must_exist=True)
-    
-    with zipfile.ZipFile(src_path, 'r') as zf:
+
+    with zipfile.ZipFile(src_path, "r") as zf:
         return [
             {
                 "name": info.filename,
@@ -117,20 +118,22 @@ def create_tar(source: str | list, dest: str, compression: str = "gz") -> str:
     # Validate compression option
     valid_compressions = {"gz", "bz2", "xz", ""}
     if compression not in valid_compressions:
-        raise ArchiveOperationError(f"Invalid compression: {compression}. Use: gz, bz2, xz, or empty string")
-    
+        raise ArchiveOperationError(
+            f"Invalid compression: {compression}. Use: gz, bz2, xz, or empty string"
+        )
+
     dest_path = _safe_path(dest)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     mode = f"w:{compression}" if compression else "w"
-    
+
     sources = [source] if isinstance(source, str) else source
-    
+
     with tarfile.open(dest_path, mode) as tf:
         for src in sources:
             src_path = _safe_path(src, must_exist=True)
             tf.add(src_path, arcname=src_path.name)
-    
+
     return f"Created TAR archive: {dest_path}"
 
 
@@ -139,21 +142,21 @@ def extract_tar(source: str, dest: str) -> str:
     src_path = _safe_path(source, must_exist=True)
     dest_path = _safe_path(dest)
     dest_path.mkdir(parents=True, exist_ok=True)
-    
-    with tarfile.open(src_path, 'r:*') as tf:
+
+    with tarfile.open(src_path, "r:*") as tf:
         # Check for path traversal attack before extracting
         entries = [member.name for member in tf.getmembers()]
         _validate_archive_entries(entries, dest_path)
         tf.extractall(dest_path)
-    
+
     return f"Extracted TAR to: {dest_path}"
 
 
 def list_tar(source: str) -> list:
     """List contents of a TAR archive."""
     src_path = _safe_path(source, must_exist=True)
-    
-    with tarfile.open(src_path, 'r:*') as tf:
+
+    with tarfile.open(src_path, "r:*") as tf:
         return [
             {
                 "name": member.name,
@@ -172,10 +175,12 @@ def extract_auto(source: str, dest: str) -> str:
     """
     src_path = _safe_path(source, must_exist=True)
     name = src_path.name.lower()
-    
-    if name.endswith('.zip'):
+
+    if name.endswith(".zip"):
         return extract_zip(source, dest)
-    elif any(name.endswith(ext) for ext in ['.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tar.xz']):
+    elif any(
+        name.endswith(ext) for ext in [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz"]
+    ):
         return extract_tar(source, dest)
     else:
         # Try shutil.unpack_archive as fallback
@@ -188,13 +193,17 @@ def extract_auto(source: str, dest: str) -> str:
 def dispatch(op: str, **kwargs) -> str | list:
     """Dispatch archive operations."""
     if op == "zip":
-        return create_zip(kwargs["source"], kwargs["dest"], kwargs.get("compression", "deflate"))
+        return create_zip(
+            kwargs["source"], kwargs["dest"], kwargs.get("compression", "deflate")
+        )
     if op == "unzip":
         return extract_zip(kwargs["source"], kwargs["dest"])
     if op == "list_zip":
         return list_zip(kwargs["source"])
     if op == "tar":
-        return create_tar(kwargs["source"], kwargs["dest"], kwargs.get("compression", "gz"))
+        return create_tar(
+            kwargs["source"], kwargs["dest"], kwargs.get("compression", "gz")
+        )
     if op == "untar":
         return extract_tar(kwargs["source"], kwargs["dest"])
     if op == "list_tar":
