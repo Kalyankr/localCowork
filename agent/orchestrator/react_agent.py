@@ -12,11 +12,14 @@ allowing for dynamic adaptation and error recovery.
 
 import json
 import logging
+import os
+import platform
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 
 from pydantic import BaseModel, Field
 
+from agent.config import settings
 from agent.llm.client import call_llm_json
 from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
 from agent.orchestrator.models import StepResult
@@ -307,8 +310,10 @@ class ReActAgent:
             history=history,
             observation=self._format_observation(observation),
             context=json.dumps(state.context, indent=2, default=str)[
-                :2000
+                :settings.context_limit_short
             ],  # Limit context size
+            cwd=os.getcwd(),
+            platform=f"{platform.system()} {platform.release()}",
         )
 
         try:
@@ -529,7 +534,7 @@ class ReActAgent:
         prompt = REFLECTION_PROMPT.format(
             goal=state.goal,
             steps_summary=self._summarize_steps(state),
-            final_context=json.dumps(state.context, indent=2, default=str)[:3000],
+            final_context=json.dumps(state.context, indent=2, default=str)[:settings.context_limit_medium],
         )
 
         try:
