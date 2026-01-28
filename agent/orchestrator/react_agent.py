@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 
 from agent.llm.client import call_llm_json
 from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
-from agent.orchestrator.tool_registry import ToolRegistry
 from agent.orchestrator.models import StepResult
 from agent.sandbox.sandbox_runner import Sandbox
 from agent.safety import (
@@ -115,7 +114,6 @@ class ReActAgent:
     def __init__(
         self,
         sandbox: Sandbox,
-        tool_registry: Optional[ToolRegistry] = None,  # Optional, for backward compat
         on_progress: Optional[ProgressCallback] = None,
         on_confirm: Optional[ConfirmCallback] = None,  # Confirmation for dangerous ops
         max_iterations: int = MAX_ITERATIONS,
@@ -123,7 +121,6 @@ class ReActAgent:
         require_confirmation: bool = True,  # If False, skip confirmation prompts
     ):
         self.sandbox = sandbox
-        self.tool_registry = tool_registry  # Optional fallback
         self.on_progress = on_progress
         self.on_confirm = on_confirm
         self.max_iterations = max_iterations
@@ -510,16 +507,7 @@ class ReActAgent:
                         step_id="shell", status="error", error=f"Shell error: {str(e)}"
                     )
 
-            # Fallback: try registered tools (for backward compatibility)
-            if self.tool_registry and self.tool_registry.has(action.tool):
-                tool = self.tool_registry.get(action.tool)
-                resolved_args = self._resolve_args(action.args, context)
-                output = tool(**resolved_args)
-                return StepResult(
-                    step_id=f"action_{action.tool}", status="success", output=output
-                )
-
-            # Unknown tool
+            # Unknown tool - only shell and python are supported
             return StepResult(
                 step_id=f"action_{action.tool}",
                 status="error",

@@ -58,26 +58,6 @@ def mock_sandbox():
 
 
 @pytest.fixture
-def mock_tool_registry():
-    """Create a mock tool registry."""
-    from agent.orchestrator.tool_registry import ToolRegistry
-    
-    registry = ToolRegistry()
-    
-    # Register mock tools
-    async def mock_shell(command: str):
-        return {"stdout": f"executed: {command}", "returncode": 0}
-    
-    async def mock_python(code: str):
-        return {"output": "executed python code"}
-    
-    registry.register("shell", mock_shell)
-    registry.register("python", mock_python)
-    
-    return registry
-
-
-@pytest.fixture
 def sample_conversation_history():
     """Sample conversation history for testing."""
     return [

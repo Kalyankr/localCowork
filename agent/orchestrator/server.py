@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.task_manager import TaskState as TMState
 from agent.config import settings
+from agent.version import __version__
 from agent.llm.client import LLMError
 import uuid
 import logging
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="LocalCowork API",
     description="Pure agentic local automation - shell + python",
-    version="0.3.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -41,12 +42,7 @@ app = FastAPI(
 # CORS middleware - allow local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,7 +100,10 @@ class RateLimiter:
         return max(0, int(self.window_seconds - (time.time() - oldest)))
 
 
-rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
+rate_limiter = RateLimiter(
+    max_requests=settings.rate_limit_requests,
+    window_seconds=settings.rate_limit_window
+)
 
 
 # Shared dependencies - only sandbox needed for pure agentic execution

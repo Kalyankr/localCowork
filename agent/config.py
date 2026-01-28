@@ -1,6 +1,10 @@
 """Centralized configuration for LocalCowork using Pydantic Settings."""
 
+from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Import version from single source of truth
+from agent.version import __version__
 
 
 class Settings(BaseSettings):
@@ -19,6 +23,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Version (read-only, from version.py)
+    @property
+    def version(self) -> str:
+        return __version__
+
     # LLM Settings
     ollama_url: str = "http://localhost:11434/api/generate"
     ollama_model: str = "mistral"
@@ -32,12 +41,32 @@ class Settings(BaseSettings):
     sandbox_cpu_limit: str = "1"
     sandbox_pids_limit: int = 50
     docker_image: str = "python:3.12-slim"
+    sandbox_user_id: str = "1000:1000"  # UID:GID for sandbox container
 
     # Server Settings
     server_host: str = "127.0.0.1"
     server_port: int = 8000
     session_timeout: int = 3600  # 1 hour
     max_history_messages: int = 20
+    
+    # CORS Settings
+    cors_origins: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+    ]
+    
+    # Rate Limiting
+    rate_limit_requests: int = 60
+    rate_limit_window: int = 60  # seconds
+    
+    # Context Limits (for LLM prompts)
+    context_limit_short: int = 2000
+    context_limit_medium: int = 3000
+    context_limit_long: int = 5000
+    output_limit: int = 50000
+    shell_timeout: int = 300  # Shell command timeout
 
     # Execution Settings
     max_code_retries: int = 2
@@ -51,6 +80,7 @@ class Settings(BaseSettings):
     )
     max_task_history: int = 100  # Max tasks to keep in history
     workspace_cleanup_days: int = 7  # Days before cleaning up old workspaces
+    web_search_limit: int = 5  # Max search results to fetch
 
     @property
     def workspace_path(self) -> str:

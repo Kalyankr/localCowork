@@ -120,7 +120,7 @@ class Sandbox:
                 "--pids-limit",
                 str(settings.sandbox_pids_limit),
                 "--user",
-                "1000:1000",
+                settings.sandbox_user_id,
                 "--cap-drop",
                 "ALL",
                 "--security-opt",

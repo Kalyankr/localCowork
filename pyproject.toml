@@ -1,6 +1,6 @@
 [project]
 name = "localcowork"
-version = "0.3.0"
+dynamic = ["version"]
 description = "A privacy-first AI agent that runs entirely on your machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -29,6 +29,9 @@ dev = [
 
 [project.scripts]
 localcowork = "agent.cli:cli"
+
+[tool.setuptools.dynamic]
+version = {attr = "agent.version.__version__"}
 
 [dependency-groups]
 dev = [

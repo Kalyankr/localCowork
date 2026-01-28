@@ -4,7 +4,6 @@ __all__ = [
     "ReActAgent",
     "StepResult",
     "TaskRequest",
-    "ToolRegistry",
 ]
 
 
@@ -18,8 +17,4 @@ def __getattr__(name: str):
         from agent.orchestrator import models
 
         return getattr(models, name)
-    if name == "ToolRegistry":
-        from agent.orchestrator.tool_registry import ToolRegistry
-
-        return ToolRegistry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
