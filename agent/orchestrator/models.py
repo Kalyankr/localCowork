@@ -165,7 +165,9 @@ class WebSocketMessage(BaseModel):
         return cls(type=WSMessageType.ERROR, data={"message": message})
 
     @classmethod
-    def stream_start(cls, task_id: str, stream_type: str = "response") -> "WebSocketMessage":
+    def stream_start(
+        cls, task_id: str, stream_type: str = "response"
+    ) -> "WebSocketMessage":
         """Signal the start of a streaming response."""
         return cls(
             type=WSMessageType.STREAM_START,
@@ -192,7 +194,9 @@ class WebSocketMessage(BaseModel):
         )
 
     @classmethod
-    def stream_thought(cls, task_id: str, thought: str, iteration: int) -> "WebSocketMessage":
+    def stream_thought(
+        cls, task_id: str, thought: str, iteration: int
+    ) -> "WebSocketMessage":
         """Stream agent's thinking/reasoning."""
         return cls(
             type=WSMessageType.STREAM_THOUGHT,
@@ -201,7 +205,9 @@ class WebSocketMessage(BaseModel):
         )
 
     @classmethod
-    def stream_action(cls, task_id: str, tool: str, args: Dict[str, Any]) -> "WebSocketMessage":
+    def stream_action(
+        cls, task_id: str, tool: str, args: Dict[str, Any]
+    ) -> "WebSocketMessage":
         """Stream agent's action decision."""
         return cls(
             type=WSMessageType.STREAM_ACTION,

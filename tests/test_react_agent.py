@@ -1,7 +1,7 @@
 """Tests for the ReAct agent."""
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 
 class TestReActAgent:

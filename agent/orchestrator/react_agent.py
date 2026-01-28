@@ -15,12 +15,12 @@ import logging
 import os
 import platform
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable, Awaitable, AsyncIterator
+from typing import Optional, List, Dict, Any, Callable, Awaitable
 
 from pydantic import BaseModel, Field
 
 from agent.config import settings
-from agent.llm.client import call_llm_json, call_llm_json_async
+from agent.llm.client import call_llm_json_async
 from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
 from agent.orchestrator.models import StepResult
 from agent.sandbox.sandbox_runner import Sandbox
@@ -38,6 +38,76 @@ logger = logging.getLogger(__name__)
 MAX_ITERATIONS = 15
 # Maximum consecutive failures before stopping
 MAX_CONSECUTIVE_FAILURES = 3
+
+
+def _sanitize_error(error: str, tool: str = "command") -> str:
+    """
+    Sanitize error messages to be user-friendly.
+
+    Removes raw code dumps and technical details, keeping only
+    the essential error information.
+    """
+    if not error:
+        return f"The {tool} encountered an issue."
+
+    # Extract just the error type and message from Python tracebacks
+    lines = error.strip().split("\n")
+
+    # Look for common Python error patterns
+    for line in reversed(lines):
+        line = line.strip()
+        # Match patterns like "NameError: name 'x' is not defined"
+        if any(
+            err in line
+            for err in [
+                "Error:",
+                "Exception:",
+                "error:",
+                "ModuleNotFoundError",
+                "ImportError",
+                "FileNotFoundError",
+                "PermissionError",
+                "TypeError",
+                "ValueError",
+                "KeyError",
+                "IndexError",
+                "AttributeError",
+                "SyntaxError",
+                "NameError",
+                "ZeroDivisionError",
+                "RuntimeError",
+                "OSError",
+            ]
+        ):
+            # Clean up the error message
+            if len(line) > 200:
+                line = line[:200] + "..."
+            return f"Error: {line}"
+
+    # For shell errors, extract the main message
+    if "Exit" in error and ":" in error:
+        # Format: "Exit 1: error message"
+        parts = error.split(":", 1)
+        if len(parts) > 1:
+            msg = parts[1].strip()
+            if len(msg) > 200:
+                msg = msg[:200] + "..."
+            return f"Command failed: {msg}" if msg else "Command failed"
+        return "Command failed"
+
+    # For timeout errors
+    if "timed out" in error.lower() or "timeout" in error.lower():
+        return f"The {tool} took too long and was stopped."
+
+    # For connection errors
+    if "connection" in error.lower() or "connect" in error.lower():
+        return "Connection error. Please check your network."
+
+    # Generic fallback - don't expose raw technical details
+    if len(error) > 150 or "\n" in error:
+        return f"The {tool} encountered an error. Please try a different approach."
+
+    return f"Error: {error}"
 
 
 class Observation(BaseModel):
@@ -442,8 +512,8 @@ class ReActAgent:
                     return StepResult(
                         step_id=f"action_{action.tool}",
                         status="error",
-                        output=result.get("output"),
-                        error=result.get("error"),
+                        output=None,  # Don't expose raw output on error
+                        error=_sanitize_error(result.get("error"), "Python script"),
                     )
 
                 # Parse output for variables
@@ -486,13 +556,16 @@ class ReActAgent:
                     # Non-zero exit isn't always an error (e.g., grep no match)
                     # Return both stdout and stderr for context
                     if result.returncode != 0:
+                        raw_error = (
+                            f"Exit {result.returncode}: {stderr}"
+                            if stderr
+                            else f"Exit {result.returncode}"
+                        )
                         return StepResult(
                             step_id="shell",
                             status="error",
-                            output=output if output else None,
-                            error=f"Exit {result.returncode}: {stderr[:500]}"
-                            if stderr
-                            else f"Exit {result.returncode}",
+                            output=None,  # Don't expose raw output on error
+                            error=self._sanitize_error(raw_error, "shell command"),
                         )
 
                     # Include stderr in output if present (warnings, progress, etc.)
@@ -515,7 +588,9 @@ class ReActAgent:
                     )
                 except Exception as e:
                     return StepResult(
-                        step_id="shell", status="error", error=f"Shell error: {str(e)}"
+                        step_id="shell",
+                        status="error",
+                        error=self._sanitize_error(str(e), "shell command"),
                     )
 
             # Unknown tool - only shell and python are supported
@@ -527,7 +602,9 @@ class ReActAgent:
 
         except Exception as e:
             return StepResult(
-                step_id=f"action_{action.tool}", status="error", error=str(e)
+                step_id=f"action_{action.tool}",
+                status="error",
+                error=self._sanitize_error(str(e), action.tool),
             )
 
     async def _reflect(self, state: AgentState) -> Dict[str, Any]:
@@ -625,7 +702,8 @@ class ReActAgent:
                 return json.dumps(output, indent=2, default=str)[:1000]
             return str(output)[:1000]
         else:
-            return f"ERROR: {result.error}"
+            # Return sanitized error message
+            return f"ERROR: {result.error}"  # Already sanitized by _sanitize_error
 
     def _make_context_key(self, action: Action, iteration: int) -> str:
         """Generate a context key for storing action results."""

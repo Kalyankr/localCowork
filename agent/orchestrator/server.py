@@ -461,77 +461,82 @@ async def run_agent(request: TaskRequest, _auth: bool = Depends(verify_api_key))
 async def stream_task(websocket: WebSocket, task_id: str):
     """
     WebSocket endpoint for streaming task execution with real-time token delivery.
-    
+
     This provides a more responsive experience by streaming:
     - Agent thoughts as they're generated
     - Actions being taken
     - Tool outputs
     - Final response tokens
-    
+
     Usage:
         1. Connect to ws://host/ws/stream/{task_id}
         2. Send: {"request": "your task", "session_id": "optional"}
         3. Receive streaming messages
     """
     from agent.orchestrator.react_agent import ReActAgent
-    from agent.llm.client import call_llm_chat_stream_async
-    
+
     await websocket.accept()
-    
+
     try:
         # Wait for the task request
         data = await websocket.receive_json()
         request_text = data.get("request", "")
         session_id = data.get("session_id") or str(uuid.uuid4())
-        
+
         if not request_text:
             await websocket.send_json(
                 WebSocketMessage.error("No request provided").model_dump()
             )
             await websocket.close()
             return
-        
+
         add_message(session_id, "user", request_text)
-        
+
         # Create task
         task = task_manager.create_task(request_text, session_id)
         task_manager.update_state(task.id, TMState.EXECUTING)
-        
+
         # Send stream start
         await websocket.send_json(
             WebSocketMessage.stream_start(task.id, "agent").model_dump()
         )
-        
+
         async def on_progress(iteration: int, status: str, thought: str, action: str):
             """Stream progress updates."""
             try:
                 await websocket.send_json(
-                    WebSocketMessage.stream_thought(task.id, thought, iteration).model_dump()
+                    WebSocketMessage.stream_thought(
+                        task.id, thought, iteration
+                    ).model_dump()
                 )
                 if action:
-                    await websocket.send_json({
-                        "type": "progress",
-                        "task_id": task.id,
-                        "iteration": iteration,
-                        "status": status,
-                        "action": action,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "progress",
+                            "task_id": task.id,
+                            "iteration": iteration,
+                            "status": status,
+                            "action": action,
+                        }
+                    )
             except Exception:
                 pass  # Connection may have closed
-        
+
         async def on_confirm(command: str, reason: str, message: str) -> bool:
             """Request confirmation via WebSocket."""
             confirm_id = str(uuid.uuid4())
-            
-            await websocket.send_json({
-                "type": "confirm_request",
-                "confirm_id": confirm_id,
-                "task_id": task.id,
-                "command": command[:200],
-                "reason": reason,
-                "message": message,
-            })
-            
+
+            await websocket.send_json(
+                {
+                    "type": "confirm_request",
+                    "confirm_id": confirm_id,
+                    "task_id": task.id,
+                    "command": command[:200],
+                    "reason": reason,
+                    "message": message,
+                }
+            )
+
             try:
                 # Wait for confirmation response
                 response = await asyncio.wait_for(
@@ -540,10 +545,10 @@ async def stream_task(websocket: WebSocket, task_id: str):
                 return response.get("confirmed", False)
             except asyncio.TimeoutError:
                 return False
-        
+
         history = get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
-        
+
         agent = ReActAgent(
             sandbox=sandbox,
             on_progress=on_progress,
@@ -552,48 +557,50 @@ async def stream_task(websocket: WebSocket, task_id: str):
             conversation_history=conv,
             require_confirmation=True,
         )
-        
+
         state = await agent.run(request_text)
-        
+
         # Update task state
         if state.status == "completed":
             task_manager.update_state(task.id, TMState.COMPLETED)
             task_manager.set_summary(task.id, state.final_answer or "Done")
         else:
             task_manager.update_state(task.id, TMState.FAILED, state.error)
-        
+
         if state.final_answer:
             add_message(session_id, "assistant", state.final_answer)
-            
+
             # Stream the final response token by token for a nice effect
             await websocket.send_json(
                 WebSocketMessage.stream_start(task.id, "response").model_dump()
             )
-            
+
             # Send response in chunks for streaming effect
             response = state.final_answer
             chunk_size = 10  # Characters per chunk
             for i in range(0, len(response), chunk_size):
-                chunk = response[i:i + chunk_size]
+                chunk = response[i : i + chunk_size]
                 await websocket.send_json(
                     WebSocketMessage.stream_token(task.id, chunk).model_dump()
                 )
                 await asyncio.sleep(0.02)  # Small delay for visual effect
-            
+
             await websocket.send_json(
                 WebSocketMessage.stream_end(task.id, response).model_dump()
             )
-        
+
         # Send completion
-        await websocket.send_json({
-            "type": "complete",
-            "task_id": task.id,
-            "session_id": session_id,
-            "status": state.status,
-            "response": state.final_answer,
-            "steps": len(state.steps),
-        })
-        
+        await websocket.send_json(
+            {
+                "type": "complete",
+                "task_id": task.id,
+                "session_id": session_id,
+                "status": state.status,
+                "response": state.final_answer,
+                "steps": len(state.steps),
+            }
+        )
+
     except WebSocketDisconnect:
         logger.info(f"Stream client disconnected for task {task_id}")
     except LLMError as e:
@@ -603,9 +610,7 @@ async def stream_task(websocket: WebSocket, task_id: str):
     except Exception as e:
         logger.exception(f"Stream error for task {task_id}")
         try:
-            await websocket.send_json(
-                WebSocketMessage.error(str(e)).model_dump()
-            )
+            await websocket.send_json(WebSocketMessage.error(str(e)).model_dump())
         except Exception:
             pass
     finally:
@@ -619,61 +624,69 @@ async def stream_task(websocket: WebSocket, task_id: str):
 async def stream_chat(websocket: WebSocket):
     """
     Simple streaming chat WebSocket - streams LLM responses token by token.
-    
+
     For quick conversational interactions without full agent execution.
-    
+
     Usage:
         1. Connect to ws://host/ws/chat
         2. Send: {"message": "hello", "session_id": "optional"}
         3. Receive streaming tokens
     """
     from agent.llm.client import call_llm_chat_stream_async
-    
+
     await websocket.accept()
     session_id = str(uuid.uuid4())
-    
+
     try:
         while True:
             data = await websocket.receive_json()
             message = data.get("message", "")
             session_id = data.get("session_id", session_id)
-            
+
             if not message:
                 continue
-            
+
             add_message(session_id, "user", message)
             history = get_history(session_id)
             messages = [{"role": m.role, "content": m.content} for m in history]
-            
+
             # Start streaming
-            await websocket.send_json({
-                "type": "stream_start",
-                "session_id": session_id,
-            })
-            
+            await websocket.send_json(
+                {
+                    "type": "stream_start",
+                    "session_id": session_id,
+                }
+            )
+
             full_response = ""
             try:
                 async for token in call_llm_chat_stream_async(messages):
                     full_response += token
-                    await websocket.send_json({
-                        "type": "stream_token",
-                        "token": token,
-                    })
-                
-                await websocket.send_json({
-                    "type": "stream_end",
-                    "full_response": full_response,
-                    "session_id": session_id,
-                })
-                
+                    await websocket.send_json(
+                        {
+                            "type": "stream_token",
+                            "token": token,
+                        }
+                    )
+
+                await websocket.send_json(
+                    {
+                        "type": "stream_end",
+                        "full_response": full_response,
+                        "session_id": session_id,
+                    }
+                )
+
                 add_message(session_id, "assistant", full_response)
-                
+
             except LLMError as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": str(e),
-                })
-                
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+
     except WebSocketDisconnect:
         logger.info("Chat stream client disconnected")
     except Exception as e:
