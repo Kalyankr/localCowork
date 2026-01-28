@@ -92,7 +92,9 @@ ProgressCallback = Callable[
 
 # Type for confirmation callback (for dangerous operations)
 # Returns True if user confirms, False to cancel
-ConfirmCallback = Callable[[str, str, str], Awaitable[bool]]  # command, reason, message -> confirmed
+ConfirmCallback = Callable[
+    [str, str, str], Awaitable[bool]
+]  # command, reason, message -> confirmed
 
 
 class ReActAgent:
@@ -109,7 +111,7 @@ class ReActAgent:
 
     No manual tool registration needed - the agent figures out what commands
     and code to run based on the task.
-    
+
     Safety: Dangerous operations (file deletion, etc.) require explicit
     user confirmation via the on_confirm callback.
     """
@@ -310,7 +312,7 @@ class ReActAgent:
             history=history,
             observation=self._format_observation(observation),
             context=json.dumps(state.context, indent=2, default=str)[
-                :settings.context_limit_short
+                : settings.context_limit_short
             ],  # Limit context size
             cwd=os.getcwd(),
             platform=f"{platform.system()} {platform.release()}",
@@ -351,12 +353,10 @@ class ReActAgent:
                 None,
             )
 
-    async def _check_safety(
-        self, action: Action
-    ) -> tuple[bool, Optional[str]]:
+    async def _check_safety(self, action: Action) -> tuple[bool, Optional[str]]:
         """
         Check if an action is safe to execute.
-        
+
         Returns:
             Tuple of (is_safe, error_message)
             If dangerous but confirmed, returns (True, None)
@@ -365,48 +365,54 @@ class ReActAgent:
         if action.tool == "shell":
             command = action.args.get("command", "")
             danger_level, reason = analyze_command(command)
-            
+
             if danger_level == DangerLevel.BLOCKED:
                 return False, f"🚫 Operation blocked: {reason}"
-            
+
             if danger_level in (DangerLevel.DANGEROUS, DangerLevel.WARNING):
                 if not self.require_confirmation:
                     logger.warning(f"Skipping confirmation (disabled): {reason}")
                     return True, None
-                
+
                 if self.on_confirm:
                     affected_paths = get_affected_paths(command)
                     message = format_confirmation_message(
                         command, danger_level, reason, affected_paths
                     )
-                    
+
                     confirmed = await self.on_confirm(command, reason, message)
                     if not confirmed:
                         return False, f"❌ Operation cancelled by user: {reason}"
                 else:
                     # No confirmation callback - block dangerous operations
-                    return False, f"🚫 Dangerous operation requires confirmation: {reason}"
-        
+                    return (
+                        False,
+                        f"🚫 Dangerous operation requires confirmation: {reason}",
+                    )
+
         elif action.tool == "python":
             code = action.args.get("code", "")
             danger_level, reason = analyze_python_code(code)
-            
+
             if danger_level == DangerLevel.BLOCKED:
                 return False, f"🚫 Operation blocked: {reason}"
-            
+
             if danger_level == DangerLevel.DANGEROUS:
                 if not self.require_confirmation:
                     logger.warning(f"Skipping confirmation (disabled): {reason}")
                     return True, None
-                
+
                 if self.on_confirm:
                     message = f"⚠️ CONFIRMATION REQUIRED\n\nReason: {reason}\n\nDo you want to proceed? (y/N)"
                     confirmed = await self.on_confirm(code[:200], reason, message)
                     if not confirmed:
                         return False, f"❌ Operation cancelled by user: {reason}"
                 else:
-                    return False, f"🚫 Dangerous operation requires confirmation: {reason}"
-        
+                    return (
+                        False,
+                        f"🚫 Dangerous operation requires confirmation: {reason}",
+                    )
+
         return True, None
 
     async def _execute_action(
@@ -534,7 +540,9 @@ class ReActAgent:
         prompt = REFLECTION_PROMPT.format(
             goal=state.goal,
             steps_summary=self._summarize_steps(state),
-            final_context=json.dumps(state.context, indent=2, default=str)[:settings.context_limit_medium],
+            final_context=json.dumps(state.context, indent=2, default=str)[
+                : settings.context_limit_medium
+            ],
         )
 
         try:
@@ -549,11 +557,12 @@ class ReActAgent:
             }
         except Exception as e:
             logger.warning(f"Reflection failed: {e}")
-            # Default to verified if reflection fails
+            # Default to NOT verified if reflection fails - be conservative
             return {
-                "verified": True,
-                "reason": "Reflection check failed, assuming complete",
-                "summary": "",
+                "verified": False,
+                "confidence": 0.0,
+                "reason": "Reflection check failed - please verify manually",
+                "summary": "Task may be incomplete. Please check the results.",
             }
 
     def _build_history(self, state: AgentState) -> str:

@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import subprocess
 import logging
@@ -16,13 +17,13 @@ class Sandbox:
     1. RESTRICTED (default): Docker-isolated, no network, read-only
     2. PERMISSIVE: Direct execution with full file/network access
 
-    Use permissive mode for Cowork-style agentic tasks where the agent
-    needs to actually manipulate files, fetch URLs, etc.
+    SECURITY NOTE: Permissive mode grants full system access to AI-generated code.
+    Only use permissive=True when you trust the environment and need file/network access.
     """
 
-    def __init__(self, timeout: int | None = None, permissive: bool = True):
+    def __init__(self, timeout: int | None = None, permissive: bool = False):
         self.timeout = timeout or settings.sandbox_timeout
-        self.permissive = permissive  # Default to permissive for agentic mode
+        self.permissive = permissive  # Default to RESTRICTED for security
         self._docker_available: bool | None = None
 
     def _check_docker(self) -> bool:
@@ -52,38 +53,47 @@ class Sandbox:
         """
         Run Python code directly with full system access.
         This is the Cowork-style mode for agentic tasks.
+
+        SECURITY WARNING: This grants full access to AI-generated code.
         """
         logger.debug(f"Running Python code in permissive mode ({len(code)} chars)")
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(code)
-            script_path = f.name
-
+        # Create temp file with secure permissions
+        fd, script_path = tempfile.mkstemp(suffix=".py", text=True)
         try:
-            # Run with the user's Python, full access
-            env = os.environ.copy()
+            os.chmod(script_path, 0o600)  # Only owner can read/write
+            with os.fdopen(fd, "w") as f:
+                f.write(code)
+
+            # Run with the user's Python, full access (async)
             cwd = working_dir or os.path.expanduser("~")
 
-            result = subprocess.run(
-                ["python", script_path],
-                capture_output=True,
-                timeout=self.timeout,
-                cwd=cwd,
-                env=env,
-            )
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "python",
+                    script_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                )
 
-            if result.returncode == 0:
-                return {"output": result.stdout.decode()}
-            else:
-                return {
-                    "error": f"Exit code {result.returncode}:\n{result.stderr.decode()}",
-                    "output": result.stdout.decode() if result.stdout else None,
-                }
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=self.timeout
+                )
 
-        except subprocess.TimeoutExpired:
-            return {"error": f"Execution timed out after {self.timeout}s"}
-        except Exception as e:
-            return {"error": str(e)}
+                if proc.returncode == 0:
+                    return {"output": stdout.decode()}
+                else:
+                    return {
+                        "error": f"Exit code {proc.returncode}:\n{stderr.decode()}",
+                        "output": stdout.decode() if stdout else None,
+                    }
+
+            except asyncio.TimeoutError:
+                proc.kill()
+                return {"error": f"Execution timed out after {self.timeout}s"}
+            except Exception as e:
+                return {"error": str(e)}
         finally:
             os.unlink(script_path)
 
@@ -128,8 +138,6 @@ class Sandbox:
                 "--read-only",
                 "--tmpfs",
                 "/tmp:size=10m,exec,nosuid,nodev",
-                # Optionally add a strict seccomp profile if available
-                # "--security-opt", "seccomp=unconfined",  # Replace with a custom profile for stricter isolation
                 "-v",
                 f"{tmpdir}:/app:ro",
                 "--workdir",
@@ -140,15 +148,23 @@ class Sandbox:
             ]
 
             try:
-                out = subprocess.check_output(
-                    cmd, stderr=subprocess.STDOUT, timeout=self.timeout
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
                 )
-                return {"output": out.decode()}
 
-            except subprocess.CalledProcessError as e:
-                return {
-                    "error": f"Runtime error (exit {e.returncode}):\n{e.output.decode()}"
-                }
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=self.timeout
+                )
 
-            except subprocess.TimeoutExpired:
+                if proc.returncode == 0:
+                    return {"output": stdout.decode()}
+                else:
+                    return {
+                        "error": f"Runtime error (exit {proc.returncode}):\n{stdout.decode()}"
+                    }
+
+            except asyncio.TimeoutError:
+                proc.kill()
                 return {"error": "Execution timed out"}

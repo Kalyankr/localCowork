@@ -11,13 +11,19 @@ from agent.sandbox.sandbox_runner import Sandbox
 
 
 @lru_cache(maxsize=1)
-def get_sandbox() -> Sandbox:
+def get_sandbox(permissive: bool = True) -> Sandbox:
     """
     Get the singleton sandbox instance for Python code execution.
 
-    Uses lru_cache to ensure only one instance is created.
+    Args:
+        permissive: If True, allows full system access (needed for agentic tasks).
+                   If False, runs in Docker sandbox (safer but limited).
+
+    Note: For the agentic workflow, permissive=True is required so the agent
+    can actually manipulate files and execute commands. Safety is enforced
+    via the safety.py module with user confirmation for dangerous operations.
     """
-    return Sandbox()
+    return Sandbox(permissive=permissive)
 
 
 @lru_cache(maxsize=1)

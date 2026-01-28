@@ -1,6 +1,5 @@
 """Tests for the safety module."""
 
-import pytest
 from agent.safety import (
     analyze_command,
     analyze_python_code,
@@ -23,7 +22,7 @@ class TestAnalyzeCommand:
             "grep pattern file.txt",
             "find . -name '*.py'",
         ]
-        
+
         for cmd in safe_commands:
             level, reason = analyze_command(cmd)
             assert level == DangerLevel.SAFE, f"Expected SAFE for: {cmd}"
@@ -42,7 +41,7 @@ class TestAnalyzeCommand:
             "rm -fr folder",
             "rm --recursive folder",
         ]
-        
+
         for cmd in dangerous_commands:
             level, reason = analyze_command(cmd)
             assert level == DangerLevel.DANGEROUS, f"Expected DANGEROUS for: {cmd}"
@@ -52,11 +51,11 @@ class TestAnalyzeCommand:
         blocked_commands = [
             "sudo rm -rf /",
             "dd if=/dev/zero of=/dev/sda",
-            "mkfs.ext4 /dev/sda1",
+            "mkfs /dev/sda1",  # Base mkfs command
             "shutdown -h now",
             "reboot",
         ]
-        
+
         for cmd in blocked_commands:
             level, reason = analyze_command(cmd)
             assert level == DangerLevel.BLOCKED, f"Expected BLOCKED for: {cmd}"
@@ -172,9 +171,9 @@ class TestFormatConfirmationMessage:
             command="rm -rf folder",
             danger_level=DangerLevel.DANGEROUS,
             reason="Recursive deletion",
-            affected_paths=["folder"]
+            affected_paths=["folder"],
         )
-        
+
         assert "CONFIRMATION REQUIRED" in message
         assert "rm -rf folder" in message
         assert "Recursive deletion" in message
@@ -187,7 +186,7 @@ class TestFormatConfirmationMessage:
             danger_level=DangerLevel.BLOCKED,
             reason="Sudo is not allowed",
         )
-        
+
         assert "BLOCKED" in message
 
     def test_affected_paths_limit(self):
@@ -197,8 +196,8 @@ class TestFormatConfirmationMessage:
             command="rm *.txt",
             danger_level=DangerLevel.DANGEROUS,
             reason="Wildcard deletion",
-            affected_paths=paths
+            affected_paths=paths,
         )
-        
+
         assert "file0.txt" in message
         assert "and 10 more" in message

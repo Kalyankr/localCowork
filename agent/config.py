@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     server_port: int = 8000
     session_timeout: int = 3600  # 1 hour
     max_history_messages: int = 20
-    
+    api_key: str | None = None  # Optional API key for authentication
+
     # CORS Settings
     cors_origins: List[str] = [
         "http://localhost:3000",
@@ -56,11 +57,11 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:8000",
     ]
-    
+
     # Rate Limiting
     rate_limit_requests: int = 60
     rate_limit_window: int = 60  # seconds
-    
+
     # Context Limits (for LLM prompts)
     context_limit_short: int = 2000
     context_limit_medium: int = 3000

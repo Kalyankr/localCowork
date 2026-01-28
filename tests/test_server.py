@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def client():
     """Create test client for the FastAPI app."""
     from agent.orchestrator.server import app
+
     return TestClient(app)
 
 
@@ -67,15 +68,15 @@ class TestRunEndpoint:
         response = client.post("/run", json={})
         assert response.status_code == 422
 
-    @patch("agent.orchestrator.server.ReActAgent")
+    @patch("agent.orchestrator.react_agent.ReActAgent")
     def test_run_with_llm_error(self, mock_agent_class, client):
         """Run should handle LLM errors gracefully."""
         from agent.llm.client import LLMError
-        
+
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(side_effect=LLMError("Connection failed"))
         mock_agent_class.return_value = mock_agent
-        
+
         response = client.post("/run", json={"request": "test"})
         assert response.status_code == 503
 

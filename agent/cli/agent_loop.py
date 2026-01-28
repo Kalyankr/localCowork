@@ -28,7 +28,7 @@ def run_agent(model_override: str = None):
     """Main agent loop - handles everything autonomously."""
     from agent.llm.client import check_ollama_health
     from agent.config import settings as app_settings
-    
+
     global settings
     settings = app_settings
 
@@ -88,7 +88,9 @@ def _interactive_loop(model: str):
                 new_model = user_input[7:].strip()
                 if new_model:
                     model = new_model
-                    console.print(f"  [green]✓[/green] Switched to model: [cyan]{model}[/cyan]")
+                    console.print(
+                        f"  [green]✓[/green] Switched to model: [cyan]{model}[/cyan]"
+                    )
                     console.print()
                 continue
 
@@ -271,15 +273,17 @@ def _process_input_agentic(
         """Prompt user for confirmation on dangerous operations."""
         from rich.panel import Panel
         from rich.prompt import Confirm
-        
+
         # Stop live display temporarily to show confirmation
         console.print()
-        console.print(Panel(
-            message,
-            title="[bold red]⚠️ Confirmation Required[/bold red]",
-            border_style="red",
-        ))
-        
+        console.print(
+            Panel(
+                message,
+                title="[bold red]⚠️ Confirmation Required[/bold red]",
+                border_style="red",
+            )
+        )
+
         try:
             return Confirm.ask("[bold]Proceed?[/bold]", default=False)
         except (KeyboardInterrupt, EOFError):
@@ -572,7 +576,9 @@ def _show_help():
     console.print()
 
     console.print("  [bold]Commands[/bold]")
-    console.print("    [cyan]/clear[/cyan]     [dim]Reset screen and conversation[/dim]")
+    console.print(
+        "    [cyan]/clear[/cyan]     [dim]Reset screen and conversation[/dim]"
+    )
     console.print("    [cyan]/status[/cyan]    [dim]Show current settings[/dim]")
     console.print("    [cyan]/history[/cyan]   [dim]View conversation history[/dim]")
     console.print("    [cyan]/model X[/cyan]   [dim]Switch to model X[/dim]")
@@ -590,14 +596,16 @@ def _show_help():
 def _show_status(model: str):
     """Show current status and settings."""
     import os
-    
+
     console.print()
     console.print("  [bold cyan]◆[/bold cyan] [bold white]Status[/bold white]")
     console.print()
     console.print(f"    [dim]Version:[/dim]     [white]{__version__}[/white]")
     console.print(f"    [dim]Model:[/dim]       [cyan]{model}[/cyan]")
     console.print(f"    [dim]Working Dir:[/dim] [white]{os.getcwd()}[/white]")
-    console.print(f"    [dim]Max Steps:[/dim]   [white]{settings.max_agent_iterations}[/white]")
+    console.print(
+        f"    [dim]Max Steps:[/dim]   [white]{settings.max_agent_iterations}[/white]"
+    )
     console.print(f"    [dim]Ollama URL:[/dim]  [white]{settings.ollama_url}[/white]")
     console.print()
 
@@ -605,29 +613,31 @@ def _show_status(model: str):
 def _show_history(conversation_history: list):
     """Show conversation history."""
     console.print()
-    console.print("  [bold cyan]◆[/bold cyan] [bold white]Conversation History[/bold white]")
+    console.print(
+        "  [bold cyan]◆[/bold cyan] [bold white]Conversation History[/bold white]"
+    )
     console.print()
-    
+
     if not conversation_history:
         console.print("    [dim]No conversation history yet.[/dim]")
         console.print()
         return
-    
+
     width = _get_width()
-    
+
     for i, msg in enumerate(conversation_history):
         role = msg["role"]
         content = msg["content"]
-        
+
         # Truncate long messages
         if len(content) > width - 20:
-            content = content[:width - 23] + "..."
-        
+            content = content[: width - 23] + "..."
+
         if role == "user":
             console.print(f"    [bold green]You:[/bold green] {content}")
         else:
             console.print(f"    [bold cyan]AI:[/bold cyan] {content}")
-    
+
     console.print()
     console.print(f"    [dim]{len(conversation_history)} messages in history[/dim]")
     console.print()
