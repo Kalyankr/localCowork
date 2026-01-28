@@ -4,6 +4,7 @@ import pytest
 from pathlib import Path
 import tempfile
 import shutil
+from unittest.mock import MagicMock, AsyncMock
 
 
 @pytest.fixture
@@ -34,11 +35,78 @@ def sample_files(tmp_path):
 @pytest.fixture
 def mock_llm_response(monkeypatch):
     """Mock LLM responses for testing without Ollama."""
-    def mock_call_llm(prompt):
+    def mock_call_llm(prompt, force_json=False):
         return "Mocked LLM response"
     
     def mock_call_llm_json(prompt):
-        return {"steps": [{"id": "test", "action": "chat_op", "args": {"op": "respond", "message": "test"}}]}
+        return {
+            "thought": "This is a test",
+            "is_complete": True,
+            "response": "Test response"
+        }
     
     monkeypatch.setattr("agent.llm.client.call_llm", mock_call_llm)
     monkeypatch.setattr("agent.llm.client.call_llm_json", mock_call_llm_json)
+
+
+@pytest.fixture
+def mock_sandbox():
+    """Mock sandbox for testing without Docker."""
+    sandbox = MagicMock()
+    sandbox.run_python = AsyncMock(return_value={"output": "test output"})
+    return sandbox
+
+
+@pytest.fixture
+def mock_tool_registry():
+    """Create a mock tool registry."""
+    from agent.orchestrator.tool_registry import ToolRegistry
+    
+    registry = ToolRegistry()
+    
+    # Register mock tools
+    async def mock_shell(command: str):
+        return {"stdout": f"executed: {command}", "returncode": 0}
+    
+    async def mock_python(code: str):
+        return {"output": "executed python code"}
+    
+    registry.register("shell", mock_shell)
+    registry.register("python", mock_python)
+    
+    return registry
+
+
+@pytest.fixture
+def sample_conversation_history():
+    """Sample conversation history for testing."""
+    return [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi! How can I help you?"},
+        {"role": "user", "content": "List files in my home directory"},
+        {"role": "assistant", "content": "Here are the files..."},
+    ]
+
+
+@pytest.fixture(scope="session")
+def test_settings():
+    """Create test settings with safe defaults."""
+    from agent.config import Settings
+    
+    return Settings(
+        ollama_url="http://localhost:11434/api/generate",
+        ollama_model="test-model",
+        sandbox_timeout=5,
+        require_approval=False,
+        workspace_dir="/tmp/localcowork_test",
+    )
+
+
+# Async test support
+@pytest.fixture
+def event_loop():
+    """Create event loop for async tests."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()

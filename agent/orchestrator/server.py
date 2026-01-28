@@ -3,8 +3,9 @@
 All task execution uses the ReAct agent (shell + python).
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from agent.orchestrator.models import (
     TaskRequest,
     TaskSummary,
@@ -15,7 +16,7 @@ from agent.orchestrator.models import (
     WSMessageType,
 )
 from pydantic import ValidationError
-from agent.orchestrator.deps import get_tool_registry, get_sandbox, get_task_manager
+from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.task_manager import TaskState as TMState
 from agent.config import settings
 from agent.llm.client import LLMError
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional
 from collections import defaultdict
 import time
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +34,80 @@ app = FastAPI(
     title="LocalCowork API",
     description="Pure agentic local automation - shell + python",
     version="0.3.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-# Shared dependencies
-tool_registry = get_tool_registry()
+# CORS middleware - allow local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected exceptions gracefully."""
+    logger.exception(f"Unhandled exception: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": str(exc) if settings.ollama_model == "debug" else "An unexpected error occurred",
+        },
+    )
+
+
+# =============================================================================
+# Rate Limiter (simple in-memory implementation)
+# =============================================================================
+
+
+class RateLimiter:
+    """Simple in-memory rate limiter using sliding window."""
+    
+    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests: Dict[str, List[float]] = defaultdict(list)
+    
+    def is_allowed(self, client_id: str) -> bool:
+        """Check if request is allowed for this client."""
+        now = time.time()
+        window_start = now - self.window_seconds
+        
+        # Clean old requests
+        self.requests[client_id] = [
+            ts for ts in self.requests[client_id] if ts > window_start
+        ]
+        
+        if len(self.requests[client_id]) >= self.max_requests:
+            return False
+        
+        self.requests[client_id].append(now)
+        return True
+    
+    def get_retry_after(self, client_id: str) -> int:
+        """Get seconds until rate limit resets."""
+        if not self.requests[client_id]:
+            return 0
+        oldest = min(self.requests[client_id])
+        return max(0, int(self.window_seconds - (time.time() - oldest)))
+
+
+rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
+
+
+# Shared dependencies - only sandbox needed for pure agentic execution
 sandbox = get_sandbox()
 task_manager = get_task_manager()
 
@@ -240,7 +312,6 @@ async def run_task(request: TaskRequest):
         conv = [{"role": m.role, "content": m.content} for m in history]
 
         agent = ReActAgent(
-            tool_registry=tool_registry,
             sandbox=sandbox,
             on_progress=on_progress,
             max_iterations=15,

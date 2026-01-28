@@ -97,7 +97,6 @@ def is_command_safe(cmd: str) -> tuple[bool, str]:
     dangerous_patterns = [
         (">", "Output redirection"),
         (">>", "Append redirection"),
-        ("|", "Pipes"),  # We could allow simple pipes later
         ("$(", "Command substitution"),
         ("`", "Backtick substitution"),
         ("&&", "Command chaining"),
@@ -107,11 +106,52 @@ def is_command_safe(cmd: str) -> tuple[bool, str]:
 
     for pattern, reason in dangerous_patterns:
         if pattern in cmd:
-            # Allow simple pipes for grep/sort/etc
-            if pattern == "|":
-                continue  # Allow pipes but validate each command
             return False, f"{reason} is not allowed"
 
+    # Validate pipe commands - each command in pipeline must be allowed
+    if "|" in cmd:
+        is_valid, error = _validate_pipeline(cmd)
+        if not is_valid:
+            return False, error
+
+    return True, "OK"
+
+
+def _validate_pipeline(cmd: str) -> tuple[bool, str]:
+    """Validate that all commands in a pipeline are allowed.
+    
+    Args:
+        cmd: Command string containing pipes
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    pipe_parts = cmd.split("|")
+    
+    for part in pipe_parts:
+        part = part.strip()
+        if not part:
+            continue
+            
+        try:
+            sub_parts = shlex.split(part)
+        except ValueError:
+            return False, f"Invalid syntax in pipeline: {part}"
+            
+        if not sub_parts:
+            continue
+            
+        sub_cmd = Path(sub_parts[0]).name
+        
+        # Check if piped command is blocked
+        for blocked in BLOCKED_COMMANDS:
+            if blocked in part.split():
+                return False, f"Command '{blocked}' is not allowed in pipeline"
+        
+        # Check if piped command is allowed
+        if sub_cmd not in ALLOWED_COMMANDS:
+            return False, f"Command '{sub_cmd}' in pipeline is not in the allowed list"
+    
     return True, "OK"
 
 

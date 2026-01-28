@@ -1,9 +1,9 @@
 """
-Shared dependencies: ToolRegistry + Sandbox instances.
-Import from here to avoid duplicate setup across CLI and server.
+Shared dependencies: Sandbox instance for Python execution.
 
-This module provides singleton instances of the tool registry and sandbox,
-ensuring consistent state across the application.
+The ReAct agent uses shell + python directly, not registered tools.
+Tool modules (file_tools, web_tools, etc.) are available for direct import
+if needed, but the agent doesn't require a registry.
 """
 
 from functools import lru_cache
@@ -16,42 +16,21 @@ from agent.sandbox.sandbox_runner import Sandbox
 @lru_cache(maxsize=1)
 def get_tool_registry() -> ToolRegistry:
     """
-    Get the singleton tool registry with all tools registered.
+    Get the tool registry (minimal - for backward compatibility only).
 
-    Uses lru_cache to ensure only one instance is created.
+    The ReAct agent uses shell and python directly, so the registry
+    is mostly empty. Tools can still be registered for special cases.
     """
-    from agent.tools import (
-        file_tools,
-        markdown_tools,
-        data_tools,
-        pdf_tools,
-        text_tools,
-        web_tools,
-        shell_tools,
-        json_tools,
-        archive_tools,
-        chat_tools,
-    )
-
     registry = ToolRegistry()
-    registry.register("file_op", file_tools.dispatch)
-    registry.register("markdown_op", markdown_tools.dispatch)
-    registry.register("data_op", data_tools.dispatch)
-    registry.register("pdf_op", pdf_tools.dispatch)
-    registry.register("text_op", text_tools.dispatch)
-    registry.register("web_op", web_tools.dispatch)
-    registry.register("shell_op", shell_tools.dispatch)
-    registry.register("json_op", json_tools.dispatch)
-    registry.register("archive_op", archive_tools.dispatch)
-    registry.register("chat_op", chat_tools.dispatch)
-
+    # No tools registered by default - agent uses shell + python directly
+    # Tools can be added here for special integrations if needed
     return registry
 
 
 @lru_cache(maxsize=1)
 def get_sandbox() -> Sandbox:
     """
-    Get the singleton sandbox instance.
+    Get the singleton sandbox instance for Python code execution.
 
     Uses lru_cache to ensure only one instance is created.
     """

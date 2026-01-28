@@ -101,12 +101,11 @@ def _process_input_agentic(
     Returns the assistant's response for conversation history.
     """
     from agent.orchestrator.react_agent import ReActAgent
-    from agent.orchestrator.deps import get_tool_registry, get_sandbox
+    from agent.orchestrator.deps import get_sandbox
     from agent.llm.client import LLMError
 
     console.print()
 
-    tool_registry = get_tool_registry()
     sandbox = get_sandbox()
 
     # State for live display
@@ -249,7 +248,6 @@ def _process_input_agentic(
 
     try:
         agent = ReActAgent(
-            tool_registry=tool_registry,
             sandbox=sandbox,
             on_progress=on_progress,
             max_iterations=15,

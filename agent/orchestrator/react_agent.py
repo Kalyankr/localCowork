@@ -86,24 +86,28 @@ class ReActAgent:
     """
     ReAct (Reasoning + Acting) Agent.
 
+    A pure agentic system that uses shell and Python to accomplish tasks.
     Instead of planning all steps upfront, this agent:
     1. Looks at the current state
     2. Thinks about what to do next
-    3. Executes one action
+    3. Executes one action (shell or python)
     4. Observes the result
     5. Repeats until done
+
+    No manual tool registration needed - the agent figures out what commands
+    and code to run based on the task.
     """
 
     def __init__(
         self,
-        tool_registry: ToolRegistry,
         sandbox: Sandbox,
+        tool_registry: Optional[ToolRegistry] = None,  # Optional, for backward compat
         on_progress: Optional[ProgressCallback] = None,
         max_iterations: int = MAX_ITERATIONS,
-        conversation_history: List[Dict[str, str]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ):
-        self.tool_registry = tool_registry
         self.sandbox = sandbox
+        self.tool_registry = tool_registry  # Optional fallback
         self.on_progress = on_progress
         self.max_iterations = max_iterations
         self.conversation_history = conversation_history or []
@@ -422,7 +426,7 @@ class ReActAgent:
                     )
 
             # Fallback: try registered tools (for backward compatibility)
-            if self.tool_registry.has(action.tool):
+            if self.tool_registry and self.tool_registry.has(action.tool):
                 tool = self.tool_registry.get(action.tool)
                 resolved_args = self._resolve_args(action.args, context)
                 output = tool(**resolved_args)
