@@ -246,10 +246,29 @@ def _process_input_agentic(
                 (iteration, action, status, thought[:50] if thought else "")
             )
 
+    async def on_confirm(command: str, reason: str, message: str) -> bool:
+        """Prompt user for confirmation on dangerous operations."""
+        from rich.panel import Panel
+        from rich.prompt import Confirm
+        
+        # Stop live display temporarily to show confirmation
+        console.print()
+        console.print(Panel(
+            message,
+            title="[bold red]⚠️ Confirmation Required[/bold red]",
+            border_style="red",
+        ))
+        
+        try:
+            return Confirm.ask("[bold]Proceed?[/bold]", default=False)
+        except (KeyboardInterrupt, EOFError):
+            return False
+
     try:
         agent = ReActAgent(
             sandbox=sandbox,
             on_progress=on_progress,
+            on_confirm=on_confirm,
             max_iterations=15,
             conversation_history=conversation_history or [],
         )

@@ -13,7 +13,7 @@ allowing for dynamic adaptation and error recovery.
 import json
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Awaitable
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,13 @@ from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
 from agent.orchestrator.tool_registry import ToolRegistry
 from agent.orchestrator.models import StepResult
 from agent.sandbox.sandbox_runner import Sandbox
+from agent.safety import (
+    analyze_command,
+    analyze_python_code,
+    get_affected_paths,
+    format_confirmation_message,
+    DangerLevel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +88,10 @@ ProgressCallback = Callable[
     [int, str, str, Optional[str]], None
 ]  # iteration, status, thought, action
 
+# Type for confirmation callback (for dangerous operations)
+# Returns True if user confirms, False to cancel
+ConfirmCallback = Callable[[str, str, str], Awaitable[bool]]  # command, reason, message -> confirmed
+
 
 class ReActAgent:
     """
@@ -96,6 +107,9 @@ class ReActAgent:
 
     No manual tool registration needed - the agent figures out what commands
     and code to run based on the task.
+    
+    Safety: Dangerous operations (file deletion, etc.) require explicit
+    user confirmation via the on_confirm callback.
     """
 
     def __init__(
@@ -103,14 +117,18 @@ class ReActAgent:
         sandbox: Sandbox,
         tool_registry: Optional[ToolRegistry] = None,  # Optional, for backward compat
         on_progress: Optional[ProgressCallback] = None,
+        on_confirm: Optional[ConfirmCallback] = None,  # Confirmation for dangerous ops
         max_iterations: int = MAX_ITERATIONS,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        require_confirmation: bool = True,  # If False, skip confirmation prompts
     ):
         self.sandbox = sandbox
         self.tool_registry = tool_registry  # Optional fallback
         self.on_progress = on_progress
+        self.on_confirm = on_confirm
         self.max_iterations = max_iterations
         self.conversation_history = conversation_history or []
+        self.require_confirmation = require_confirmation
 
     async def run(self, goal: str) -> AgentState:
         """
@@ -331,6 +349,64 @@ class ReActAgent:
                 None,
             )
 
+    async def _check_safety(
+        self, action: Action
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Check if an action is safe to execute.
+        
+        Returns:
+            Tuple of (is_safe, error_message)
+            If dangerous but confirmed, returns (True, None)
+            If blocked or user declined, returns (False, error_message)
+        """
+        if action.tool == "shell":
+            command = action.args.get("command", "")
+            danger_level, reason = analyze_command(command)
+            
+            if danger_level == DangerLevel.BLOCKED:
+                return False, f"🚫 Operation blocked: {reason}"
+            
+            if danger_level in (DangerLevel.DANGEROUS, DangerLevel.WARNING):
+                if not self.require_confirmation:
+                    logger.warning(f"Skipping confirmation (disabled): {reason}")
+                    return True, None
+                
+                if self.on_confirm:
+                    affected_paths = get_affected_paths(command)
+                    message = format_confirmation_message(
+                        command, danger_level, reason, affected_paths
+                    )
+                    
+                    confirmed = await self.on_confirm(command, reason, message)
+                    if not confirmed:
+                        return False, f"❌ Operation cancelled by user: {reason}"
+                else:
+                    # No confirmation callback - block dangerous operations
+                    return False, f"🚫 Dangerous operation requires confirmation: {reason}"
+        
+        elif action.tool == "python":
+            code = action.args.get("code", "")
+            danger_level, reason = analyze_python_code(code)
+            
+            if danger_level == DangerLevel.BLOCKED:
+                return False, f"🚫 Operation blocked: {reason}"
+            
+            if danger_level == DangerLevel.DANGEROUS:
+                if not self.require_confirmation:
+                    logger.warning(f"Skipping confirmation (disabled): {reason}")
+                    return True, None
+                
+                if self.on_confirm:
+                    message = f"⚠️ CONFIRMATION REQUIRED\n\nReason: {reason}\n\nDo you want to proceed? (y/N)"
+                    confirmed = await self.on_confirm(code[:200], reason, message)
+                    if not confirmed:
+                        return False, f"❌ Operation cancelled by user: {reason}"
+                else:
+                    return False, f"🚫 Dangerous operation requires confirmation: {reason}"
+        
+        return True, None
+
     async def _execute_action(
         self, action: Action, context: Dict[str, Any]
     ) -> StepResult:
@@ -339,6 +415,15 @@ class ReActAgent:
         import os
 
         try:
+            # Safety check before execution
+            is_safe, error = await self._check_safety(action)
+            if not is_safe:
+                return StepResult(
+                    step_id=f"action_{action.tool}",
+                    status="error",
+                    error=error,
+                )
+
             # Handle Python code execution
             if action.tool == "python":
                 code = action.args.get("code", "")
