@@ -30,6 +30,10 @@ dev = [
 [project.scripts]
 localcowork = "agent.cli:cli"
 
+[build-system]
+requires = ["setuptools>=61.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.dynamic]
 version = {attr = "agent.version.__version__"}
 
