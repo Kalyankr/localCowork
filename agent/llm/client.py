@@ -4,17 +4,18 @@ This module provides a clean interface to Ollama using the official library
 instead of raw HTTP requests. Benefits:
 - Cleaner API with typed responses
 - Built-in connection management
-- Async support ready
+- Full async support for non-blocking operations
+- Streaming support for real-time token delivery
 - Better error handling
 """
 
 import json
 import logging
 import re
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, AsyncIterator
 
 import ollama
-from ollama import ResponseError, RequestError
+from ollama import ResponseError, RequestError, AsyncClient
 
 from agent.config import get_settings
 
@@ -27,21 +28,36 @@ class LLMError(Exception):
     pass
 
 
-# Create a client instance (reusable, connection pooled)
+# Create client instances (reusable, connection pooled)
 _client: Optional[ollama.Client] = None
+_async_client: Optional[AsyncClient] = None
+
+
+def _get_host() -> str:
+    """Get the Ollama host URL."""
+    s = get_settings()
+    host = s.ollama_url.replace("/api/generate", "").replace("/api/chat", "")
+    if host.endswith("/"):
+        host = host[:-1]
+    return host
 
 
 def _get_client() -> ollama.Client:
-    """Get or create the Ollama client singleton."""
+    """Get or create the Ollama sync client singleton."""
     global _client
     if _client is None:
         s = get_settings()
-        # Extract host from the old URL format if needed
-        host = s.ollama_url.replace("/api/generate", "").replace("/api/chat", "")
-        if host.endswith("/"):
-            host = host[:-1]
-        _client = ollama.Client(host=host, timeout=s.ollama_timeout)
+        _client = ollama.Client(host=_get_host(), timeout=s.ollama_timeout)
     return _client
+
+
+def _get_async_client() -> AsyncClient:
+    """Get or create the Ollama async client singleton."""
+    global _async_client
+    if _async_client is None:
+        s = get_settings()
+        _async_client = AsyncClient(host=_get_host(), timeout=s.ollama_timeout)
+    return _async_client
 
 
 def call_llm(prompt: str, force_json: bool = False) -> str:
@@ -349,6 +365,219 @@ def check_ollama_health() -> tuple[bool, Optional[str]]:
         return False, f"Ollama error: {e}"
     except Exception as e:
         return False, f"Unknown error: {e}"
+
+
+# =============================================================================
+# Async Functions - Non-blocking versions for use with asyncio
+# =============================================================================
+
+
+async def call_llm_async(prompt: str, force_json: bool = False) -> str:
+    """
+    Async version of call_llm. Calls Ollama without blocking the event loop.
+
+    Args:
+        prompt: The prompt to send to the model
+        force_json: If True, use Ollama's JSON mode to force valid JSON output
+
+    Returns:
+        The model's response text
+
+    Raises:
+        LLMError: If the LLM request fails.
+    """
+    try:
+        client = _get_async_client()
+        s = get_settings()
+        logger.debug(
+            f"Async calling LLM with model={s.ollama_model}, force_json={force_json}"
+        )
+
+        kwargs = {
+            "model": s.ollama_model,
+            "prompt": prompt,
+            "options": {"num_predict": s.max_tokens},
+        }
+
+        if force_json:
+            kwargs["format"] = "json"
+
+        response = await client.generate(**kwargs)
+        return response.response
+
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
+        raise LLMError(f"Async LLM request failed: {e}")
+
+
+async def call_llm_chat_async(messages: List[Dict[str, str]], model: str = None) -> str:
+    """
+    Async version of call_llm_chat.
+
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        model: Optional model override
+
+    Returns:
+        The assistant's response content
+
+    Raises:
+        LLMError: If the LLM request fails.
+    """
+    try:
+        client = _get_async_client()
+        s = get_settings()
+        active_model = model or s.ollama_model
+        logger.debug(
+            f"Async calling LLM chat with model={active_model}, {len(messages)} messages"
+        )
+
+        response = await client.chat(
+            model=active_model,
+            messages=messages,
+            options={"num_predict": s.max_tokens},
+        )
+
+        return response.message.content
+
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
+        raise LLMError(f"Async LLM chat request failed: {e}")
+
+
+async def call_llm_json_async(prompt: str) -> dict:
+    """
+    Async version of call_llm_json. Guarantees valid JSON output.
+
+    Args:
+        prompt: The initial prompt to send
+
+    Returns:
+        Parsed JSON as a dictionary
+
+    Raises:
+        LLMError: If JSON parsing fails after all retries
+    """
+    s = get_settings()
+    max_retries = s.max_json_retries
+
+    for attempt in range(max_retries + 1):
+        try:
+            current_prompt = prompt
+            if attempt > 0:
+                logger.info(f"Async JSON retry attempt {attempt + 1}/{max_retries + 1}")
+                current_prompt = (
+                    prompt
+                    + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
+                )
+
+            raw = await call_llm_async(current_prompt, force_json=True)
+
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return repair_json(raw)
+
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Async JSON parse failed (attempt {attempt + 1}): {e}")
+            if attempt < max_retries:
+                continue
+            else:
+                raise LLMError(
+                    f"Failed to get valid JSON after {max_retries + 1} attempts. "
+                    "The AI model may be having trouble understanding the request. "
+                    "Please try rephrasing."
+                )
+
+
+async def call_llm_stream_async(
+    prompt: str, force_json: bool = False
+) -> AsyncIterator[str]:
+    """
+    Async streaming version of call_llm. Yields tokens as they arrive.
+
+    Args:
+        prompt: The prompt to send to the model
+        force_json: If True, use Ollama's JSON mode
+
+    Yields:
+        String chunks of the response as they stream in
+
+    Raises:
+        LLMError: If the LLM request fails.
+    """
+    try:
+        client = _get_async_client()
+        s = get_settings()
+        logger.debug(f"Async streaming LLM with model={s.ollama_model}")
+
+        kwargs = {
+            "model": s.ollama_model,
+            "prompt": prompt,
+            "options": {"num_predict": s.max_tokens},
+            "stream": True,
+        }
+
+        if force_json:
+            kwargs["format"] = "json"
+
+        async for chunk in await client.generate(**kwargs):
+            if chunk.response:
+                yield chunk.response
+
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
+        raise LLMError(f"Async stream request failed: {e}")
+
+
+async def call_llm_chat_stream_async(
+    messages: List[Dict[str, str]], model: str = None
+) -> AsyncIterator[str]:
+    """
+    Async streaming chat. Yields tokens as they arrive from the model.
+
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        model: Optional model override
+
+    Yields:
+        String chunks of the response as they stream in
+
+    Raises:
+        LLMError: If the LLM request fails.
+    """
+    try:
+        client = _get_async_client()
+        s = get_settings()
+        active_model = model or s.ollama_model
+        logger.debug(
+            f"Async streaming chat with model={active_model}, {len(messages)} messages"
+        )
+
+        async for chunk in await client.chat(
+            model=active_model,
+            messages=messages,
+            options={"num_predict": s.max_tokens},
+            stream=True,
+        ):
+            if chunk.message and chunk.message.content:
+                yield chunk.message.content
+
+    except RequestError as e:
+        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
+    except ResponseError as e:
+        raise LLMError(f"Ollama error: {e}")
+    except Exception as e:
+        raise LLMError(f"Async chat stream request failed: {e}")
 
 
 def call_llm_chat_stream(messages: List[Dict[str, str]], model: str = None):

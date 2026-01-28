@@ -15,12 +15,12 @@ import logging
 import os
 import platform
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable, Awaitable
+from typing import Optional, List, Dict, Any, Callable, Awaitable, AsyncIterator
 
 from pydantic import BaseModel, Field
 
 from agent.config import settings
-from agent.llm.client import call_llm_json
+from agent.llm.client import call_llm_json, call_llm_json_async
 from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
 from agent.orchestrator.models import StepResult
 from agent.sandbox.sandbox_runner import Sandbox
@@ -319,7 +319,7 @@ class ReActAgent:
         )
 
         try:
-            response = call_llm_json(prompt)
+            response = await call_llm_json_async(prompt)
 
             thought = Thought(
                 reasoning=response.get(
@@ -546,7 +546,7 @@ class ReActAgent:
         )
 
         try:
-            response = call_llm_json(prompt)
+            response = await call_llm_json_async(prompt)
             return {
                 "verified": response.get(
                     "verified", response.get("goal_achieved", False)

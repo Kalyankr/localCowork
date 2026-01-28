@@ -1,7 +1,7 @@
 """Tests for the LLM client."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 
 class TestCallLLM:
@@ -166,3 +166,98 @@ class TestCallLLMChat:
 
         call_args = mock_client.chat.call_args
         assert call_args.kwargs.get("model") == "llama3"
+
+
+class TestAsyncLLMFunctions:
+    """Tests for async LLM client functions."""
+
+    @pytest.mark.asyncio
+    @patch("agent.llm.client._get_async_client")
+    async def test_call_llm_async_success(self, mock_get_async_client):
+        """call_llm_async should return response text on success."""
+        from agent.llm.client import call_llm_async
+
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = MagicMock(response="Hello async!")
+        mock_get_async_client.return_value = mock_client
+
+        result = await call_llm_async("Say hello")
+
+        assert result == "Hello async!"
+        mock_client.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("agent.llm.client._get_async_client")
+    async def test_call_llm_async_with_json_mode(self, mock_get_async_client):
+        """call_llm_async with force_json should use json format."""
+        from agent.llm.client import call_llm_async
+
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = MagicMock(response='{"key": "value"}')
+        mock_get_async_client.return_value = mock_client
+
+        result = await call_llm_async("Return JSON", force_json=True)
+
+        assert result == '{"key": "value"}'
+        call_args = mock_client.generate.call_args
+        assert call_args.kwargs.get("format") == "json"
+
+    @pytest.mark.asyncio
+    @patch("agent.llm.client._get_async_client")
+    async def test_call_llm_chat_async_success(self, mock_get_async_client):
+        """call_llm_chat_async should return assistant message content."""
+        from agent.llm.client import call_llm_chat_async
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.message.content = "Async response!"
+        mock_client.chat.return_value = mock_response
+        mock_get_async_client.return_value = mock_client
+
+        messages = [{"role": "user", "content": "Hello"}]
+        result = await call_llm_chat_async(messages)
+
+        assert result == "Async response!"
+
+    @pytest.mark.asyncio
+    @patch("agent.llm.client.call_llm_async")
+    async def test_call_llm_json_async_valid_response(self, mock_call_llm_async):
+        """call_llm_json_async should parse valid JSON."""
+        from agent.llm.client import call_llm_json_async
+
+        mock_call_llm_async.return_value = '{"thought": "test", "is_complete": true}'
+
+        result = await call_llm_json_async("Return some JSON")
+
+        assert result["thought"] == "test"
+        assert result["is_complete"] is True
+
+    @pytest.mark.asyncio
+    @patch("agent.llm.client.call_llm_async")
+    async def test_call_llm_json_async_retries_on_failure(self, mock_call_llm_async):
+        """call_llm_json_async should retry on JSON parse failure."""
+        from agent.llm.client import call_llm_json_async
+
+        # First call returns invalid JSON, second returns valid
+        mock_call_llm_async.side_effect = ["This is not JSON", '{"result": "success"}']
+
+        result = await call_llm_json_async("Return JSON please")
+
+        assert result["result"] == "success"
+        assert mock_call_llm_async.call_count == 2
+
+    @pytest.mark.asyncio
+    @patch("agent.llm.client._get_async_client")
+    async def test_call_llm_async_connection_error(self, mock_get_async_client):
+        """call_llm_async should raise LLMError on connection failure."""
+        from agent.llm.client import call_llm_async, LLMError
+        from ollama import RequestError
+
+        mock_client = AsyncMock()
+        mock_client.generate.side_effect = RequestError("Connection refused")
+        mock_get_async_client.return_value = mock_client
+
+        with pytest.raises(LLMError) as exc_info:
+            await call_llm_async("Test prompt")
+
+        assert "Cannot connect to Ollama" in str(exc_info.value)

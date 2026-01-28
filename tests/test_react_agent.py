@@ -1,7 +1,7 @@
 """Tests for the ReAct agent."""
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 
 class TestReActAgent:
@@ -18,7 +18,7 @@ class TestReActAgent:
         )
 
     @pytest.mark.asyncio
-    @patch("agent.orchestrator.react_agent.call_llm_json")
+    @patch("agent.orchestrator.react_agent.call_llm_json_async")
     async def test_agent_handles_greeting(self, mock_llm, agent):
         """Agent should handle greetings without running tools."""
         mock_llm.return_value = {
@@ -34,7 +34,7 @@ class TestReActAgent:
         assert "Hello" in state.final_answer or "help" in state.final_answer.lower()
 
     @pytest.mark.asyncio
-    @patch("agent.orchestrator.react_agent.call_llm_json")
+    @patch("agent.orchestrator.react_agent.call_llm_json_async")
     async def test_agent_executes_shell_command(self, mock_llm, agent):
         """Agent should execute shell commands when requested."""
         # First call: agent decides to run a command
@@ -58,7 +58,7 @@ class TestReActAgent:
         assert len(state.steps) >= 1
 
     @pytest.mark.asyncio
-    @patch("agent.orchestrator.react_agent.call_llm_json")
+    @patch("agent.orchestrator.react_agent.call_llm_json_async")
     async def test_agent_respects_max_iterations(self, mock_llm, agent):
         """Agent should stop after max iterations."""
         # Always return incomplete to trigger max iterations
@@ -74,7 +74,7 @@ class TestReActAgent:
         assert len(state.steps) <= agent.max_iterations
 
     @pytest.mark.asyncio
-    @patch("agent.orchestrator.react_agent.call_llm_json")
+    @patch("agent.orchestrator.react_agent.call_llm_json_async")
     async def test_agent_handles_unknown_tool(self, mock_llm, agent):
         """Agent should handle unknown tool gracefully."""
         mock_llm.side_effect = [

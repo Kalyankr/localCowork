@@ -109,6 +109,12 @@ class WSMessageType(str, Enum):
     TASK_ERROR = "task_error"
     STEP_OUTPUT = "step_output"
     ERROR = "error"
+    # Streaming message types
+    STREAM_START = "stream_start"
+    STREAM_TOKEN = "stream_token"
+    STREAM_END = "stream_end"
+    STREAM_THOUGHT = "stream_thought"
+    STREAM_ACTION = "stream_action"
 
 
 class WebSocketMessage(BaseModel):
@@ -157,3 +163,48 @@ class WebSocketMessage(BaseModel):
     @classmethod
     def error(cls, message: str) -> "WebSocketMessage":
         return cls(type=WSMessageType.ERROR, data={"message": message})
+
+    @classmethod
+    def stream_start(cls, task_id: str, stream_type: str = "response") -> "WebSocketMessage":
+        """Signal the start of a streaming response."""
+        return cls(
+            type=WSMessageType.STREAM_START,
+            task_id=task_id,
+            data={"stream_type": stream_type},
+        )
+
+    @classmethod
+    def stream_token(cls, task_id: str, token: str) -> "WebSocketMessage":
+        """Send a single token in a stream."""
+        return cls(
+            type=WSMessageType.STREAM_TOKEN,
+            task_id=task_id,
+            data={"token": token},
+        )
+
+    @classmethod
+    def stream_end(cls, task_id: str, full_response: str = None) -> "WebSocketMessage":
+        """Signal the end of a streaming response."""
+        return cls(
+            type=WSMessageType.STREAM_END,
+            task_id=task_id,
+            data={"full_response": full_response} if full_response else {},
+        )
+
+    @classmethod
+    def stream_thought(cls, task_id: str, thought: str, iteration: int) -> "WebSocketMessage":
+        """Stream agent's thinking/reasoning."""
+        return cls(
+            type=WSMessageType.STREAM_THOUGHT,
+            task_id=task_id,
+            data={"thought": thought, "iteration": iteration},
+        )
+
+    @classmethod
+    def stream_action(cls, task_id: str, tool: str, args: Dict[str, Any]) -> "WebSocketMessage":
+        """Stream agent's action decision."""
+        return cls(
+            type=WSMessageType.STREAM_ACTION,
+            task_id=task_id,
+            data={"tool": tool, "args": args},
+        )

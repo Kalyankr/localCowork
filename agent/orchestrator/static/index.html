@@ -312,6 +312,42 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--text-dim);
         }
+        
+        /* Streaming message styles */
+        .message.streaming {
+            min-height: 1.6em;
+        }
+        
+        .message.streaming-active::after {
+            content: '▋';
+            animation: blink 1s infinite;
+            margin-left: 2px;
+            color: var(--accent);
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        
+        /* Streaming toggle */
+        .header-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .stream-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+        
+        .stream-toggle input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
     </style>
 </head>
 <body>
@@ -322,6 +358,10 @@
             <span class="status-badge connecting" id="status-badge">Connecting</span>
         </div>
         <div class="header-actions">
+            <label class="stream-toggle">
+                <input type="checkbox" id="stream-toggle" checked onchange="useStreaming = this.checked">
+                <span>Stream</span>
+            </label>
             <button class="icon-btn" onclick="clearChat()" title="Clear chat">🗑️</button>
         </div>
     </header>
@@ -353,9 +393,12 @@
     <script>
         // State
         let ws = null;
+        let streamWs = null;
         let sessionId = localStorage.getItem('localcowork_session') || null;
         let isProcessing = false;
         let currentTaskId = null;
+        let useStreaming = true; // Enable streaming by default
+        let currentStreamingMessage = null;
         
         // DOM elements
         const chatContainer = document.getElementById('chat-container');
@@ -364,7 +407,7 @@
         const sendBtn = document.getElementById('send-btn');
         const statusBadge = document.getElementById('status-badge');
         
-        // WebSocket
+        // WebSocket for notifications
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
@@ -405,8 +448,165 @@
             }
         }
         
-        // Message handling
-        async function sendMessage() {
+        // Streaming message handling
+        async function sendMessageStreaming() {
+            const text = messageInput.value.trim();
+            if (!text || isProcessing) return;
+            
+            // Hide empty state
+            if (emptyState) emptyState.style.display = 'none';
+            
+            // Add user message
+            addMessage(text, 'user');
+            messageInput.value = '';
+            
+            isProcessing = true;
+            sendBtn.disabled = true;
+            
+            // Create task ID for this request
+            const taskId = 'task_' + Date.now();
+            currentTaskId = taskId;
+            
+            // Show thinking indicator
+            const thinkingEl = showThinking();
+            
+            // Create streaming message element
+            currentStreamingMessage = document.createElement('div');
+            currentStreamingMessage.className = 'message assistant streaming';
+            currentStreamingMessage.style.display = 'none';
+            chatContainer.appendChild(currentStreamingMessage);
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            streamWs = new WebSocket(`${protocol}//${window.location.host}/ws/stream/${taskId}`);
+            
+            streamWs.onopen = () => {
+                streamWs.send(JSON.stringify({
+                    request: text,
+                    session_id: sessionId,
+                }));
+            };
+            
+            streamWs.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleStreamMessage(msg, thinkingEl);
+            };
+            
+            streamWs.onerror = (err) => {
+                console.error('Stream error:', err);
+                thinkingEl.remove();
+                if (currentStreamingMessage && !currentStreamingMessage.textContent) {
+                    currentStreamingMessage.remove();
+                }
+                addMessage('Connection error. Please try again.', 'error');
+                finishStreaming();
+            };
+            
+            streamWs.onclose = () => {
+                finishStreaming();
+            };
+        }
+        
+        function handleStreamMessage(msg, thinkingEl) {
+            console.log('Stream:', msg);
+            
+            switch (msg.type) {
+                case 'stream_start':
+                    if (msg.data?.stream_type === 'response') {
+                        // Hide thinking, show streaming message
+                        thinkingEl.remove();
+                        currentStreamingMessage.style.display = 'block';
+                        currentStreamingMessage.classList.add('streaming-active');
+                    }
+                    break;
+                    
+                case 'stream_token':
+                    if (currentStreamingMessage) {
+                        currentStreamingMessage.textContent += msg.data?.token || msg.token || '';
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                    }
+                    break;
+                    
+                case 'stream_end':
+                    if (currentStreamingMessage) {
+                        currentStreamingMessage.classList.remove('streaming-active');
+                        if (msg.data?.full_response) {
+                            currentStreamingMessage.textContent = msg.data.full_response;
+                        }
+                    }
+                    break;
+                    
+                case 'stream_thought':
+                    // Update thinking indicator
+                    const thinkingText = document.querySelector('.thinking-text');
+                    if (thinkingText && msg.data?.thought) {
+                        const preview = msg.data.thought.length > 60 
+                            ? msg.data.thought.substring(0, 60) + '...' 
+                            : msg.data.thought;
+                        thinkingText.textContent = `Step ${msg.data.iteration}: ${preview}`;
+                    }
+                    break;
+                    
+                case 'progress':
+                    const progressText = document.querySelector('.thinking-text');
+                    if (progressText && msg.action) {
+                        progressText.textContent = `Running: ${msg.action}`;
+                    }
+                    break;
+                    
+                case 'confirm_request':
+                    handleConfirmRequest(msg);
+                    break;
+                    
+                case 'complete':
+                    thinkingEl.remove();
+                    sessionId = msg.session_id;
+                    localStorage.setItem('localcowork_session', sessionId);
+                    
+                    // If we haven't shown the streaming message yet, show the response
+                    if (currentStreamingMessage && !currentStreamingMessage.textContent && msg.response) {
+                        currentStreamingMessage.style.display = 'block';
+                        currentStreamingMessage.textContent = msg.response;
+                    } else if (!currentStreamingMessage?.textContent && msg.response) {
+                        addMessage(msg.response, 'assistant');
+                    }
+                    
+                    if (msg.status === 'failed') {
+                        addMessage('Task failed. Please try again.', 'error');
+                    }
+                    break;
+                    
+                case 'error':
+                case 'task_error':
+                    thinkingEl.remove();
+                    const errorMsg = msg.data?.message || msg.data?.error || 'An error occurred';
+                    addMessage('Error: ' + errorMsg, 'error');
+                    break;
+            }
+        }
+        
+        function handleConfirmRequest(msg) {
+            // Show confirmation dialog
+            const confirmed = confirm(`⚠️ Confirmation Required\n\n${msg.message || msg.reason}\n\nDo you want to proceed?`);
+            
+            if (streamWs && streamWs.readyState === WebSocket.OPEN) {
+                streamWs.send(JSON.stringify({
+                    type: 'confirm_response',
+                    confirm_id: msg.confirm_id,
+                    confirmed: confirmed,
+                }));
+            }
+        }
+        
+        function finishStreaming() {
+            isProcessing = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+            currentStreamingMessage = null;
+            streamWs = null;
+        }
+        
+        // Non-streaming fallback
+        async function sendMessageFetch() {
             const text = messageInput.value.trim();
             if (!text || isProcessing) return;
             
@@ -465,6 +665,15 @@
                 isProcessing = false;
                 sendBtn.disabled = false;
                 messageInput.focus();
+            }
+        }
+        
+        // Main send function - chooses streaming or fetch
+        function sendMessage() {
+            if (useStreaming) {
+                sendMessageStreaming();
+            } else {
+                sendMessageFetch();
             }
         }
         
