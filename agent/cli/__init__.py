@@ -10,6 +10,8 @@ import logging
 import typer
 
 from agent.cli.console import Icons, console
+from agent.version import __version__
+from agent.config import settings
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +29,7 @@ app = typer.Typer(
 
 def version_callback(value: bool):
     if value:
-        console.print("[bold cyan]LocalCowork[/bold cyan] v0.3.0")
+        console.print(f"[bold cyan]LocalCowork[/bold cyan] v{__version__}")
         raise typer.Exit()
 
 
@@ -64,8 +66,8 @@ def main(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", "--host", "-h"),
-    port: int = typer.Option(8000, "--port", "-p"),
+    host: str = typer.Option(settings.server_host, "--host", "-h"),
+    port: int = typer.Option(settings.server_port, "--port", "-p"),
 ):
     """Start the web UI."""
     import webbrowser

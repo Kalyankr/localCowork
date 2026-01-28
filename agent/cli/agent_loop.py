@@ -15,6 +15,7 @@ from agent.cli.console import (
     print_padding,
     format_duration,
 )
+from agent.version import __version__
 
 
 # Get terminal width for proper formatting
@@ -26,7 +27,10 @@ def _get_width() -> int:
 def run_agent(model_override: str = None):
     """Main agent loop - handles everything autonomously."""
     from agent.llm.client import check_ollama_health
-    from agent.config import settings
+    from agent.config import settings as app_settings
+    
+    global settings
+    settings = app_settings
 
     # Check connection
     with console.status("[cyan]Connecting...[/cyan]", spinner="dots"):
@@ -72,15 +76,32 @@ def _interactive_loop(model: str):
                 conversation_history.clear()  # Also clear history
                 continue
 
+            if user_input.lower() == "/status":
+                _show_status(model)
+                continue
+
+            if user_input.lower() == "/history":
+                _show_history(conversation_history)
+                continue
+
+            if user_input.lower().startswith("/model "):
+                new_model = user_input[7:].strip()
+                if new_model:
+                    model = new_model
+                    console.print(f"  [green]✓[/green] Switched to model: [cyan]{model}[/cyan]")
+                    console.print()
+                continue
+
             result = _process_input_agentic(user_input, model, conversation_history)
 
             # Add to conversation history
             if result:
                 conversation_history.append({"role": "user", "content": user_input})
                 conversation_history.append({"role": "assistant", "content": result})
-                # Keep history manageable (last 10 exchanges)
-                if len(conversation_history) > 20:
-                    conversation_history = conversation_history[-20:]
+                # Keep history manageable
+                max_history = settings.max_history_messages
+                if len(conversation_history) > max_history:
+                    conversation_history = conversation_history[-max_history:]
 
         except KeyboardInterrupt:
             console.print()
@@ -269,7 +290,7 @@ def _process_input_agentic(
             sandbox=sandbox,
             on_progress=on_progress,
             on_confirm=on_confirm,
-            max_iterations=15,
+            max_iterations=settings.max_agent_iterations,
             conversation_history=conversation_history or [],
         )
 
@@ -492,7 +513,7 @@ def _show_welcome(model: str):
     console.print()
     # Clean logo
     console.print(
-        "  [bold cyan]██╗     [/bold cyan][bold white]LocalCowork[/bold white] [dim]v0.3[/dim]"
+        f"  [bold cyan]██╗     [/bold cyan][bold white]LocalCowork[/bold white] [dim]v{__version__}[/dim]"
     )
     console.print(
         "  [bold cyan]██║     [/bold cyan][dim]Pure Agentic AI Assistant[/dim]"
@@ -547,18 +568,68 @@ def _show_help():
     console.print("    [dim]•[/dim] find all python files larger than 1MB")
     console.print("    [dim]•[/dim] create a backup of my documents folder")
     console.print("    [dim]•[/dim] analyze this CSV and show statistics")
+    console.print("    [dim]•[/dim] create an Excel report from this data")
     console.print()
 
     console.print("  [bold]Commands[/bold]")
-    console.print("    [cyan]/clear[/cyan]  [dim]Reset screen and conversation[/dim]")
-    console.print("    [cyan]/help[/cyan]   [dim]Show this help[/dim]")
-    console.print("    [cyan]/quit[/cyan]   [dim]Exit[/dim]")
+    console.print("    [cyan]/clear[/cyan]     [dim]Reset screen and conversation[/dim]")
+    console.print("    [cyan]/status[/cyan]    [dim]Show current settings[/dim]")
+    console.print("    [cyan]/history[/cyan]   [dim]View conversation history[/dim]")
+    console.print("    [cyan]/model X[/cyan]   [dim]Switch to model X[/dim]")
+    console.print("    [cyan]/help[/cyan]      [dim]Show this help[/dim]")
+    console.print("    [cyan]/quit[/cyan]      [dim]Exit[/dim]")
     console.print()
 
     console.print("  [bold]Tips[/bold]")
     console.print("    [dim]• Be specific about what you want[/dim]")
     console.print("    [dim]• Mention file paths when relevant[/dim]")
     console.print("    [dim]• I remember context from this session[/dim]")
+    console.print()
+
+
+def _show_status(model: str):
+    """Show current status and settings."""
+    import os
+    
+    console.print()
+    console.print("  [bold cyan]◆[/bold cyan] [bold white]Status[/bold white]")
+    console.print()
+    console.print(f"    [dim]Version:[/dim]     [white]{__version__}[/white]")
+    console.print(f"    [dim]Model:[/dim]       [cyan]{model}[/cyan]")
+    console.print(f"    [dim]Working Dir:[/dim] [white]{os.getcwd()}[/white]")
+    console.print(f"    [dim]Max Steps:[/dim]   [white]{settings.max_agent_iterations}[/white]")
+    console.print(f"    [dim]Ollama URL:[/dim]  [white]{settings.ollama_url}[/white]")
+    console.print()
+
+
+def _show_history(conversation_history: list):
+    """Show conversation history."""
+    console.print()
+    console.print("  [bold cyan]◆[/bold cyan] [bold white]Conversation History[/bold white]")
+    console.print()
+    
+    if not conversation_history:
+        console.print("    [dim]No conversation history yet.[/dim]")
+        console.print()
+        return
+    
+    width = _get_width()
+    
+    for i, msg in enumerate(conversation_history):
+        role = msg["role"]
+        content = msg["content"]
+        
+        # Truncate long messages
+        if len(content) > width - 20:
+            content = content[:width - 23] + "..."
+        
+        if role == "user":
+            console.print(f"    [bold green]You:[/bold green] {content}")
+        else:
+            console.print(f"    [bold cyan]AI:[/bold cyan] {content}")
+    
+    console.print()
+    console.print(f"    [dim]{len(conversation_history)} messages in history[/dim]")
     console.print()
 
 

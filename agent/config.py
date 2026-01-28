@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     # Execution Settings
     max_code_retries: int = 2
+    max_agent_iterations: int = 15  # Max ReAct loop iterations
     parallel_execution: bool = True
 
     # Task Management Settings
