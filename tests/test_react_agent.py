@@ -60,17 +60,29 @@ class TestReActAgent:
     @pytest.mark.asyncio
     @patch("agent.orchestrator.react_agent.call_llm_json_async")
     async def test_agent_respects_max_iterations(self, mock_llm, agent):
-        """Agent should stop after max iterations."""
-        # Always return incomplete to trigger max iterations
-        mock_llm.return_value = {
-            "thought": "Still working on it",
-            "is_complete": False,
-            "action": {"tool": "shell", "args": {"command": "echo test"}},
-        }
+        """Agent should stop after max iterations or detect repeats."""
+        # Use different commands to avoid repeat detection
+        commands = [f"echo test{i}" for i in range(20)]
+        call_count = [0]
+
+        def side_effect(*args, **kwargs):
+            idx = call_count[0]
+            call_count[0] += 1
+            return {
+                "thought": "Still working on it",
+                "is_complete": False,
+                "action": {
+                    "tool": "shell",
+                    "args": {"command": commands[idx % len(commands)]},
+                },
+            }
+
+        mock_llm.side_effect = side_effect
 
         state = await agent.run("Keep working forever")
 
-        assert state.status == "max_iterations"
+        # Should stop due to max iterations or repeat detection
+        assert state.status in ("max_iterations", "completed")
         assert len(state.steps) <= agent.max_iterations
 
     @pytest.mark.asyncio

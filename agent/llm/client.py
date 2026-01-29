@@ -12,6 +12,7 @@ instead of raw HTTP requests. Benefits:
 import json
 import logging
 import re
+import asyncio
 from typing import Optional, List, Dict, AsyncIterator
 
 import ollama
@@ -31,6 +32,7 @@ class LLMError(Exception):
 # Create client instances (reusable, connection pooled)
 _client: Optional[ollama.Client] = None
 _async_client: Optional[AsyncClient] = None
+_async_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 def _get_host() -> str:
@@ -52,11 +54,26 @@ def _get_client() -> ollama.Client:
 
 
 def _get_async_client() -> AsyncClient:
-    """Get or create the Ollama async client singleton."""
-    global _async_client
-    if _async_client is None:
+    """Get or create the Ollama async client singleton.
+
+    Creates a new client if:
+    - No client exists yet
+    - The event loop has changed (previous loop was closed)
+    """
+    global _async_client, _async_client_loop
+
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    # Create new client if loop changed or client doesn't exist
+    if _async_client is None or _async_client_loop is not current_loop:
         s = get_settings()
         _async_client = AsyncClient(host=_get_host(), timeout=s.ollama_timeout)
+        _async_client_loop = current_loop
+        logger.debug("Created new AsyncClient for current event loop")
+
     return _async_client
 
 

@@ -1,6 +1,7 @@
 """Pure agentic loop - ReAct-based autonomous agent."""
 
 import asyncio
+import re
 import shutil
 import time
 from typing import Optional
@@ -22,6 +23,34 @@ from agent.version import __version__
 def _get_width() -> int:
     """Get terminal width, with a reasonable default."""
     return min(shutil.get_terminal_size().columns - 4, 100)
+
+
+def _is_directory_listing(text: str) -> bool:
+    """Check if text looks like a directory listing (ls -la output)."""
+    lines = text.strip().split("\n")
+    if len(lines) < 2:
+        return False
+
+    # Check for ls -la style output (drwxr-xr-x, -rw-r--r--, etc.)
+    permission_pattern = re.compile(r"^[drwxlst-]{10}")
+    matching_lines = sum(1 for line in lines if permission_pattern.match(line.strip()))
+
+    # If more than 50% of lines look like permission strings, it's a directory listing
+    if matching_lines > len(lines) * 0.5:
+        return True
+
+    # Also check for common hidden files that appear in ls output
+    hidden_file_indicators = [
+        ".DS_Store",
+        ".localized",
+        ".Trash",
+        ".CFUserTextEncoding",
+    ]
+    for indicator in hidden_file_indicators:
+        if indicator in text:
+            return True
+
+    return False
 
 
 def run_agent(model_override: str = None):
@@ -127,8 +156,6 @@ def _process_input_agentic(
     from agent.orchestrator.deps import get_sandbox
     from agent.llm.client import LLMError
 
-    console.print()
-
     sandbox = get_sandbox()
 
     # State for live display
@@ -201,14 +228,11 @@ def _process_input_agentic(
             action_line.append(action_text, style=action_style)
             lines.append(action_line)
 
-        lines.append(Text(""))  # Spacing before steps
-
         # Previous steps with better visual
         if current_state["steps"]:
             # Show header if we have steps
             if len(current_state["steps"]) > 0:
                 lines.append(Text("  ─── Progress ───", style="dim"))
-                lines.append(Text(""))
 
             for step in current_state["steps"][-5:]:
                 iter_num, action, step_status, thought_preview = step
@@ -229,8 +253,6 @@ def _process_input_agentic(
                     display_action = display_action[: width - 23] + "..."
                 step_line.append(display_action, style=color)
                 lines.append(step_line)
-
-        lines.append(Text(""))  # Bottom padding
 
         # Build panel with lines
         content = Text()
@@ -408,7 +430,7 @@ def _show_context_data(context: dict):
 
     width = _get_width()
 
-    # Filter out non-displayable or error context
+    # Filter out non-displayable or uninteresting context
     displayable = {}
     for key, value in context.items():
         if value is None or value == "" or value == []:
@@ -418,6 +440,12 @@ def _show_context_data(context: dict):
             if "SyntaxError" in value or "Traceback" in value or "Error:" in value:
                 continue
             if value.startswith("import ") or value.startswith("def "):
+                continue
+            # Skip raw directory listings (ls -la output, file permissions, etc.)
+            if _is_directory_listing(value):
+                continue
+            # Skip very short outputs (likely just confirmations)
+            if len(value.strip()) < 10:
                 continue
         displayable[key] = value
 

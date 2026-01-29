@@ -302,6 +302,14 @@ class ReActAgent:
 
                 # Act: Execute the chosen action
                 if action:
+                    # Check for repeated similar commands
+                    if self._is_repeated_command(action, state.steps):
+                        logger.warning("Detected repeated command, forcing completion")
+                        state.status = "completed"
+                        state.final_answer = "I couldn't find what you're looking for after searching. The file may not exist or have a different name."
+                        state.steps.append(step)
+                        break
+
                     result = await self._execute_action(action, state.context)
                     step.result = result
 
@@ -763,3 +771,49 @@ class ReActAgent:
             result_str = step.result.status if step.result else "no result"
             lines.append(f"{step.iteration}. {action_str} → {result_str}")
         return "\n".join(lines)
+
+    def _is_repeated_command(self, action: Action, steps: List[AgentStep]) -> bool:
+        """Check if this command is essentially repeating previous commands."""
+        if not steps or len(steps) < 3:
+            return False
+
+        # Extract command from action
+        current_cmd = ""
+        if action.tool == "shell":
+            current_cmd = action.args.get("command", "")
+        elif action.tool == "python":
+            current_cmd = action.args.get("code", "")
+
+        if not current_cmd:
+            return False
+
+        # Get base command pattern (first word/command)
+        current_base = current_cmd.split()[0] if current_cmd.split() else ""
+
+        # Count similar commands in recent steps
+        similar_count = 0
+        search_commands = {"ls", "find", "locate", "grep", "cat", "head", "tail"}
+
+        for step in steps[-5:]:  # Check last 5 steps
+            if not step.action:
+                continue
+            prev_cmd = ""
+            if step.action.tool == "shell":
+                prev_cmd = step.action.args.get("command", "")
+            elif step.action.tool == "python":
+                prev_cmd = step.action.args.get("code", "")
+
+            if not prev_cmd:
+                continue
+
+            prev_base = prev_cmd.split()[0] if prev_cmd.split() else ""
+
+            # Check for similar file-searching commands
+            if current_base in search_commands and prev_base in search_commands:
+                similar_count += 1
+            # Check for nearly identical commands
+            elif current_cmd.strip() == prev_cmd.strip():
+                return True  # Exact repeat
+
+        # If we've run 3+ similar search commands, we're likely stuck
+        return similar_count >= 3
