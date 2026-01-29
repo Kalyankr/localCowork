@@ -82,11 +82,11 @@ DANGEROUS_PATTERNS = [
     (r"rm\s+.*\*", "Wildcard deletion"),
     (r"rm\s+.*~", "Home directory deletion"),
     (r"rm\s+.*/", "Path deletion"),
-    (r">\s*/dev/", "Writing to device files"),
-    (r">\s*~", "Overwriting home directory files"),
-    (r"\|\s*sh", "Piping to shell"),
-    (r"\|\s*bash", "Piping to bash"),
-    (r"\|\s*zsh", "Piping to zsh"),
+    (r"(?<![012])>\s*/dev/(?!null)", "Writing to device files"),  # Exclude 2>/dev/null
+    (r"(?<![012])>\s*~", "Overwriting home directory files"),
+    (r"\|\s*sh\b", "Piping to shell"),
+    (r"\|\s*bash\b", "Piping to bash"),
+    (r"\|\s*zsh\b", "Piping to zsh"),
     (r"curl.*\|\s*sh", "Downloading and executing scripts"),
     (r"wget.*\|\s*sh", "Downloading and executing scripts"),
     (r"curl.*\|\s*bash", "Downloading and executing scripts"),
@@ -94,9 +94,9 @@ DANGEROUS_PATTERNS = [
     (r"eval\s+", "Eval execution"),
     (r"exec\s+", "Exec execution"),
     (r"ln\s+-[sf]", "Symlink creation (potential attack vector)"),
-    (r">\s*/etc/", "Writing to system config"),
-    (r">\s*/usr/", "Writing to system directories"),
-    (r">\s*/var/", "Writing to system directories"),
+    (r"(?<![012])>\s*/etc/", "Writing to system config"),
+    (r"(?<![012])>\s*/usr/", "Writing to system directories"),
+    (r"(?<![012])>\s*/var/", "Writing to system directories"),
 ]
 
 

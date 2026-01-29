@@ -8,7 +8,6 @@ from typing import Optional
 from rich.panel import Panel
 from rich.live import Live
 from rich.text import Text
-from rich import box
 
 from agent.cli.console import (
     console,
@@ -167,110 +166,59 @@ def _process_input_agentic(
         "steps": [],  # List of (iteration, action, status, thought_preview)
     }
 
-    # Spinner frames for animation
-    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    # Nice spinner animation frames
+    spinner_frames = ["◐", "◓", "◑", "◒"]
     frame_idx = [0]  # Use list to mutate in closure
 
     def build_agent_display():
-        """Build live display showing agent's reasoning and actions."""
-        width = _get_width()
+        """Build minimal spinner display with hidden details."""
         frame_idx[0] = (frame_idx[0] + 1) % len(spinner_frames)
         spinner = spinner_frames[frame_idx[0]]
 
-        lines = []
-
-        # Status bar with iteration count
         iteration = current_state["iteration"]
         status = current_state["status"]
+        steps = current_state["steps"]
+
+        # Build single-line spinner display
+        line = Text()
+        line.append("  ")
 
         if status == "thinking":
-            status_line = Text()
-            status_line.append(f"  {spinner} ", style="bold yellow")
-            status_line.append("Thinking", style="bold yellow")
-            if iteration > 0:
-                status_line.append(f" (step {iteration})", style="dim")
-            lines.append(status_line)
+            line.append(f"{spinner} ", style="bold yellow")
+            line.append("Thinking", style="bold yellow")
         elif status == "executing":
-            status_line = Text()
-            status_line.append(f"  {spinner} ", style="bold cyan")
-            status_line.append("Executing", style="bold cyan")
-            if iteration > 0:
-                status_line.append(f" (step {iteration})", style="dim")
-            lines.append(status_line)
+            line.append(f"{spinner} ", style="bold cyan")
+            line.append("Executing", style="bold cyan")
 
-        # Current thought (truncated elegantly)
-        if current_state["thought"] and status != "thinking":
-            thought_text = current_state["thought"]
-            if len(thought_text) > width - 12:
-                thought_text = thought_text[: width - 15] + "..."
-            thought_line = Text()
-            thought_line.append("     💭 ", style="dim")
-            thought_line.append(thought_text, style="italic dim")
-            lines.append(thought_line)
+        # Show step count
+        if iteration > 0:
+            line.append("  ", style="dim")
+            line.append(f"step {iteration}", style="dim")
 
-        # Current action with better formatting
+        # Show completed steps as dots
+        if steps:
+            line.append("  ", style="dim")
+            for step in steps[-5:]:
+                _, _, step_status, _ = step
+                if step_status == "success":
+                    line.append("●", style="green")
+                elif step_status == "error":
+                    line.append("●", style="red")
+                else:
+                    line.append("○", style="dim")
+
+        # Current action hint (truncated)
         if current_state["action"]:
             action_text = current_state["action"]
-            # Prettify common actions
             if action_text.startswith("shell:"):
-                action_text = "⚡ " + action_text[6:].strip()
-                action_style = "bold green"
+                action_text = action_text[6:].strip()
             elif action_text.startswith("python:"):
-                action_text = "🐍 " + action_text[7:].strip()
-                action_style = "bold blue"
-            else:
-                action_style = "cyan"
+                action_text = "py"
+            if len(action_text) > 40:
+                action_text = action_text[:37] + "..."
+            line.append(f"  {action_text}", style="dim")
 
-            if len(action_text) > width - 12:
-                action_text = action_text[: width - 15] + "..."
-            action_line = Text()
-            action_line.append("     ", style="dim")
-            action_line.append(action_text, style=action_style)
-            lines.append(action_line)
-
-        # Previous steps with better visual
-        if current_state["steps"]:
-            # Show header if we have steps
-            if len(current_state["steps"]) > 0:
-                lines.append(Text("  ─── Progress ───", style="dim"))
-
-            for step in current_state["steps"][-5:]:
-                iter_num, action, step_status, thought_preview = step
-                if step_status == "success":
-                    icon, color = "✓", "green"
-                elif step_status == "error":
-                    icon, color = "✗", "red"
-                else:
-                    icon, color = "○", "dim"
-
-                step_line = Text()
-                step_line.append(f"  {icon} ", style=color)
-                step_line.append(f"Step {iter_num}: ", style="bold " + color)
-
-                # Shorten action for display
-                display_action = action
-                if len(display_action) > width - 20:
-                    display_action = display_action[: width - 23] + "..."
-                step_line.append(display_action, style=color)
-                lines.append(step_line)
-
-        # Build panel with lines
-        content = Text()
-        for i, line in enumerate(lines):
-            if isinstance(line, Text):
-                content.append_text(line)
-            else:
-                content.append(str(line))
-            if i < len(lines) - 1:
-                content.append("\n")
-
-        return Panel(
-            content,
-            border_style="dim",
-            box=box.SIMPLE,
-            padding=(0, 1),
-            width=width,
-        )
+        return line
 
     def on_progress(iteration: int, status: str, thought: str, action: Optional[str]):
         """Callback for agent progress updates."""
@@ -293,21 +241,23 @@ def _process_input_agentic(
 
     async def on_confirm(command: str, reason: str, message: str) -> bool:
         """Prompt user for confirmation on dangerous operations."""
-        from rich.panel import Panel
         from rich.prompt import Confirm
 
         # Stop live display temporarily to show confirmation
+        width = _get_width()
         console.print()
-        console.print(
-            Panel(
-                message,
-                title="[bold red]⚠️ Confirmation Required[/bold red]",
-                border_style="red",
-            )
-        )
+        console.print(f"  [red]╭{'─' * (width - 8)}╮[/red]")
+        console.print("  [red]│[/red] [bold red]⚠ Confirmation Required[/bold red]")
+        console.print("  [red]│[/red]")
+        # Wrap message lines
+        for line in message.split("\n"):
+            if len(line) > width - 12:
+                line = line[: width - 15] + "..."
+            console.print(f"  [red]│[/red]  [dim]{line}[/dim]")
+        console.print(f"  [red]╰{'─' * (width - 8)}╯[/red]")
 
         try:
-            return Confirm.ask("[bold]Proceed?[/bold]", default=False)
+            return Confirm.ask("  [bold]Proceed?[/bold]", default=False)
         except (KeyboardInterrupt, EOFError):
             return False
 
@@ -345,10 +295,7 @@ def _process_input_agentic(
             live.update(build_agent_display())
 
         elapsed = time.time() - start_time
-
-        console.print()
         console.print(f"  [dim]✓ Done in {format_duration(elapsed)}[/dim]")
-        console.print()
 
         # Get the response for history
         response_text = None
@@ -513,9 +460,7 @@ def _show_response(text: str, model: str):
     """Display agent response with clean formatting."""
     width = _get_width()
 
-    console.print()
     console.print("  [bold cyan]◆[/bold cyan] [bold white]LocalCowork[/bold white]")
-    console.print()
 
     # Clean and wrap the text properly
     for line in text.split("\n"):
@@ -538,86 +483,42 @@ def _show_response(text: str, model: str):
 
 
 def _show_welcome(model: str):
-    """Show welcome screen - clean and minimal."""
+    """Show welcome screen - compact with ASCII art."""
     width = _get_width()
 
     console.print()
-    console.print()
-    # Clean logo
     console.print(
-        f"  [bold cyan]██╗     [/bold cyan][bold white]LocalCowork[/bold white] [dim]v{__version__}[/dim]"
+        f"  [bold cyan]██╗[/bold cyan]  [bold white]LocalCowork[/bold white] [dim]v{__version__}[/dim]  [green]●[/green] [dim]{model}[/dim]"
     )
     console.print(
-        "  [bold cyan]██║     [/bold cyan][dim]Pure Agentic AI Assistant[/dim]"
+        "  [bold cyan]███████╗[/bold cyan]  [dim]Type a request or /help[/dim]"
     )
-    console.print("  [bold cyan]███████╗[/bold cyan]")
-    console.print()
-
-    # Status bar
-    console.print(f"  [green]●[/green] [dim]Connected to[/dim] [cyan]{model}[/cyan]")
-    console.print()
     console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
-    console.print()
-    console.print("  [white]How can I help you today?[/white]")
-    console.print("  [dim]Type a request, or /help for commands.[/dim]")
-    console.print()
 
 
 def _get_input() -> str:
-    """Get user input with complete box visible before typing."""
+    """Get user input with box prompt."""
     width = _get_width()
-    inner = width - 6
-
     try:
         console.print()
-        # Print the complete box first
-        console.print(f"  [cyan]┌{'─' * inner}┐[/cyan]")
-        console.print("  [cyan]│[/cyan]" + " " * inner + "[cyan]│[/cyan]")
-        console.print(f"  [cyan]└{'─' * inner}┘[/cyan]")
-
-        # Move cursor up 2 lines and to the input position
-        print("\033[2A\033[5C", end="", flush=True)
-
-        user_input = console.input("[bold magenta]>[/bold magenta] ")
-
-        # Move cursor down to after the box
-        print("\033[2B", end="", flush=True)
+        console.print(f"  [bright_black]╭{'─' * (width - 8)}╮[/bright_black]")
+        user_input = console.input("  [bright_black]│[/bright_black] ")
+        console.print(f"  [bright_black]╰{'─' * (width - 8)}╯[/bright_black]")
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
-        print("\033[2B", end="", flush=True)  # Move down on interrupt too
         console.print()
         raise
 
 
 def _show_help():
-    """Show minimal help."""
+    """Show compact help."""
     console.print()
-    console.print("  [bold cyan]◆[/bold cyan] [bold white]Help[/bold white]")
-    console.print()
-
-    console.print("  [bold]Examples[/bold]")
-    console.print("    [dim]•[/dim] list files in my home directory")
-    console.print("    [dim]•[/dim] find all python files larger than 1MB")
-    console.print("    [dim]•[/dim] create a backup of my documents folder")
-    console.print("    [dim]•[/dim] analyze this CSV and show statistics")
-    console.print("    [dim]•[/dim] create an Excel report from this data")
-    console.print()
-
-    console.print("  [bold]Commands[/bold]")
     console.print(
-        "    [cyan]/clear[/cyan]     [dim]Reset screen and conversation[/dim]"
+        "  [bold]Examples:[/bold] [dim]list files in home[/dim] · [dim]find python files > 1MB[/dim] · [dim]analyze this CSV[/dim]"
     )
-    console.print("    [cyan]/status[/cyan]    [dim]Show current settings[/dim]")
-    console.print("    [cyan]/history[/cyan]   [dim]View conversation history[/dim]")
-    console.print("    [cyan]/model X[/cyan]   [dim]Switch to model X[/dim]")
-    console.print("    [cyan]/help[/cyan]      [dim]Show this help[/dim]")
-    console.print("    [cyan]/quit[/cyan]      [dim]Exit[/dim]")
-    console.print()
-
-    console.print("  [bold]Tips[/bold]")
-    console.print("    [dim]• Be specific about what you want[/dim]")
-    console.print("    [dim]• Mention file paths when relevant[/dim]")
-    console.print("    [dim]• I remember context from this session[/dim]")
+    console.print(
+        "  [bold]Commands:[/bold] [cyan]/clear[/cyan] [cyan]/status[/cyan] [cyan]/history[/cyan] [cyan]/model X[/cyan] [cyan]/help[/cyan] [cyan]/quit[/cyan]"
+    )
     console.print()
 
 
