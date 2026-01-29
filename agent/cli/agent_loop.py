@@ -402,23 +402,18 @@ def _show_welcome(model: str):
 
 
 def _get_input() -> str:
-    """Get user input with full blue rectangle box."""
+    """Get user input with blue rectangle box."""
     width = _get_width()
     inner_width = width - 8
     try:
         console.print()
         console.print()
-        # Full rectangle with placeholder
+        # Top of box
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
-        console.print(
-            f"  [blue]│[/blue] [dim]Ask anything...[/dim]{' ' * (inner_width - 16)}[blue]│[/blue]"
-        )
+        # Input line with left border, user types, then we close
+        user_input = console.input(f"  [blue]│[/blue] [dim]>[/dim] ")
+        # Bottom of box
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
-        # Move cursor up 2 lines and to input position
-        console.print("\033[2A\033[5G", end="")
-        user_input = input()
-        # Move down to after box
-        console.print("\033[2B", end="")
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
         console.print()
