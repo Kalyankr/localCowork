@@ -7,10 +7,11 @@ This module provides security functions to prevent:
 - Invalid input data
 """
 
-import re
-from pathlib import Path
-from typing import Optional, List, Any, Union
 import logging
+import re
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class InputValidationError(SecurityError):
 
 # Configurable allowed base directories (expand as needed)
 # Empty means all paths are allowed (for development)
-ALLOWED_BASE_DIRS: List[Path] = []
+ALLOWED_BASE_DIRS: list[Path] = []
 
 # Dangerous path patterns
 DANGEROUS_PATTERNS = [
@@ -70,7 +71,7 @@ MAX_PATH_LENGTH = 4096
 MAX_FILENAME_LENGTH = 255
 
 
-def is_path_safe(path: Union[str, Path], base_dir: Optional[Path] = None) -> bool:
+def is_path_safe(path: str | Path, base_dir: Path | None = None) -> bool:
     """
     Check if a path is safe (no traversal, not sensitive).
 
@@ -89,8 +90,8 @@ def is_path_safe(path: Union[str, Path], base_dir: Optional[Path] = None) -> boo
 
 
 def validate_path(
-    path: Union[str, Path],
-    base_dir: Optional[Path] = None,
+    path: str | Path,
+    base_dir: Path | None = None,
     must_exist: bool = False,
     allow_symlinks: bool = False,
 ) -> Path:
@@ -222,7 +223,7 @@ def validate_string(
     name: str = "value",
     min_length: int = 0,
     max_length: int = 10000,
-    pattern: Optional[str] = None,
+    pattern: str | None = None,
     allow_empty: bool = False,
 ) -> str:
     """
@@ -278,8 +279,8 @@ def validate_string(
 def validate_integer(
     value: Any,
     name: str = "value",
-    min_value: Optional[int] = None,
-    max_value: Optional[int] = None,
+    min_value: int | None = None,
+    max_value: int | None = None,
 ) -> int:
     """
     Validate an integer input.
@@ -315,7 +316,7 @@ def validate_list(
     name: str = "value",
     min_items: int = 0,
     max_items: int = 1000,
-    item_validator: Optional[callable] = None,
+    item_validator: Callable | None = None,
 ) -> list:
     """
     Validate a list input.
@@ -400,7 +401,4 @@ def check_path_traversal_in_archive(_archive_path: str, member_name: str) -> boo
         return False
 
     # Check for drive letters (Windows)
-    if len(member_name) >= 2 and member_name[1] == ":":
-        return False
-
-    return True
+    return not (len(member_name) >= 2 and member_name[1] == ":")

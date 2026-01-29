@@ -4,7 +4,7 @@ A privacy-first AI assistant that runs entirely on your machine.
 Transforms natural language requests into executable multi-step plans.
 """
 
-__version__ = "0.1.0"
+from agent.version import __version__
 
 __all__ = [
     "__version__",

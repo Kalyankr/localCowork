@@ -6,7 +6,6 @@ and require user confirmation before execution.
 
 import re
 import shlex
-from typing import Optional, Tuple, List
 from enum import Enum
 
 
@@ -100,7 +99,7 @@ DANGEROUS_PATTERNS = [
 ]
 
 
-def analyze_command(command: str) -> Tuple[DangerLevel, Optional[str]]:
+def analyze_command(command: str) -> tuple[DangerLevel, str | None]:
     """
     Analyze a shell command for dangerous operations.
 
@@ -163,7 +162,7 @@ def analyze_command(command: str) -> Tuple[DangerLevel, Optional[str]]:
     return DangerLevel.SAFE, None
 
 
-def analyze_python_code(code: str) -> Tuple[DangerLevel, Optional[str]]:
+def analyze_python_code(code: str) -> tuple[DangerLevel, str | None]:
     """
     Analyze Python code for dangerous operations.
 
@@ -216,7 +215,7 @@ def analyze_python_code(code: str) -> Tuple[DangerLevel, Optional[str]]:
     return DangerLevel.SAFE, None
 
 
-def get_affected_paths(command: str) -> List[str]:
+def get_affected_paths(command: str) -> list[str]:
     """
     Extract file/directory paths that would be affected by a command.
 
@@ -251,7 +250,7 @@ def format_confirmation_message(
     command: str,
     danger_level: DangerLevel,
     reason: str,
-    affected_paths: Optional[List[str]] = None,
+    affected_paths: list[str] | None = None,
 ) -> str:
     """
     Format a user-friendly confirmation message.

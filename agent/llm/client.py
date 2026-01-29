@@ -9,14 +9,14 @@ instead of raw HTTP requests. Benefits:
 - Better error handling
 """
 
+import asyncio
 import json
 import logging
 import re
-import asyncio
-from typing import Optional, List, Dict, AsyncIterator
+from collections.abc import AsyncIterator
 
 import ollama
-from ollama import ResponseError, RequestError, AsyncClient
+from ollama import AsyncClient, RequestError, ResponseError
 
 from agent.config import get_settings
 
@@ -30,9 +30,9 @@ class LLMError(Exception):
 
 
 # Create client instances (reusable, connection pooled)
-_client: Optional[ollama.Client] = None
-_async_client: Optional[AsyncClient] = None
-_async_client_loop: Optional[asyncio.AbstractEventLoop] = None
+_client: ollama.Client | None = None
+_async_client: AsyncClient | None = None
+_async_client_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _get_host() -> str:
@@ -120,7 +120,7 @@ def call_llm(prompt: str, force_json: bool = False) -> str:
         raise LLMError(f"LLM request failed: {e}")
 
 
-def call_llm_chat(messages: List[Dict[str, str]], model: str = None) -> str:
+def call_llm_chat(messages: list[dict[str, str]], model: str = None) -> str:
     """
     Calls Ollama with chat messages format.
 
@@ -332,7 +332,7 @@ def repair_json(text: str) -> dict:
     raise ValueError("Could not parse response as JSON")
 
 
-def list_models() -> List[str]:
+def list_models() -> list[str]:
     """List available models from Ollama.
 
     Returns:
@@ -365,7 +365,7 @@ def check_model_exists(model_name: str = None) -> bool:
         return False
 
 
-def check_ollama_health() -> tuple[bool, Optional[str]]:
+def check_ollama_health() -> tuple[bool, str | None]:
     """Check if Ollama is running and accessible.
 
     Returns:
@@ -430,7 +430,7 @@ async def call_llm_async(prompt: str, force_json: bool = False) -> str:
         raise LLMError(f"Async LLM request failed: {e}")
 
 
-async def call_llm_chat_async(messages: List[Dict[str, str]], model: str = None) -> str:
+async def call_llm_chat_async(messages: list[dict[str, str]], model: str = None) -> str:
     """
     Async version of call_llm_chat.
 
@@ -557,7 +557,7 @@ async def call_llm_stream_async(
 
 
 async def call_llm_chat_stream_async(
-    messages: List[Dict[str, str]], model: str = None
+    messages: list[dict[str, str]], model: str = None
 ) -> AsyncIterator[str]:
     """
     Async streaming chat. Yields tokens as they arrive from the model.
@@ -597,7 +597,7 @@ async def call_llm_chat_stream_async(
         raise LLMError(f"Async chat stream request failed: {e}")
 
 
-def call_llm_chat_stream(messages: List[Dict[str, str]], model: str = None):
+def call_llm_chat_stream(messages: list[dict[str, str]], model: str = None):
     """
     Stream chat responses from Ollama.
 

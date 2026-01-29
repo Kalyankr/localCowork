@@ -1,7 +1,8 @@
 """Tests for the ReAct agent."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 class TestReActAgent:

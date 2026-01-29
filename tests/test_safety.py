@@ -1,11 +1,11 @@
 """Tests for the safety module."""
 
 from agent.safety import (
+    DangerLevel,
     analyze_command,
     analyze_python_code,
-    get_affected_paths,
     format_confirmation_message,
-    DangerLevel,
+    get_affected_paths,
 )
 
 

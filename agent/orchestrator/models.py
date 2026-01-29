@@ -1,7 +1,8 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel
 
 
 class TaskState(str, Enum):
@@ -20,14 +21,14 @@ class TaskState(str, Enum):
 
 class Step(BaseModel):
     id: str
-    description: Optional[str] = None
+    description: str | None = None
     action: str
-    args: Dict[str, Any] = {}
-    depends_on: List[str] = []
+    args: dict[str, Any] = {}
+    depends_on: list[str] = []
 
 
 class Plan(BaseModel):
-    steps: List[Step]
+    steps: list[Step]
 
     @property
     def is_chat(self) -> bool:
@@ -49,15 +50,15 @@ class ConversationMessage(BaseModel):
 
 class TaskRequest(BaseModel):
     request: str
-    session_id: Optional[str] = None  # For multi-turn conversations
+    session_id: str | None = None  # For multi-turn conversations
     auto_approve: bool = False  # Skip approval step if True
 
 
 class StepResult(BaseModel):
     step_id: str
     status: str
-    output: Optional[Any] = None
-    error: Optional[str] = None
+    output: Any | None = None
+    error: str | None = None
 
 
 class TaskSummary(BaseModel):
@@ -69,7 +70,7 @@ class TaskSummary(BaseModel):
     created_at: datetime
     step_count: int = 0
     completed_steps: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class TaskDetail(BaseModel):
@@ -77,23 +78,23 @@ class TaskDetail(BaseModel):
 
     id: str
     request: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
     state: TaskState
     created_at: datetime
     updated_at: datetime
-    plan: Optional[Plan] = None
-    step_results: Dict[str, StepResult] = {}
-    current_step: Optional[str] = None
-    summary: Optional[str] = None
-    error: Optional[str] = None
-    workspace_path: Optional[str] = None
-    workspace_files: Optional[Dict[str, List[str]]] = None
+    plan: Plan | None = None
+    step_results: dict[str, StepResult] = {}
+    current_step: str | None = None
+    summary: str | None = None
+    error: str | None = None
+    workspace_path: str | None = None
+    workspace_files: dict[str, list[str]] | None = None
 
 
 class TaskResponse(BaseModel):
     task_id: str
     plan: Plan
-    results: Dict[str, StepResult]
+    results: dict[str, StepResult]
 
 
 class WSMessageType(str, Enum):
@@ -121,8 +122,8 @@ class WebSocketMessage(BaseModel):
     """Message format for WebSocket communication."""
 
     type: WSMessageType
-    task_id: Optional[str] = None
-    data: Dict[str, Any] = {}
+    task_id: str | None = None
+    data: dict[str, Any] = {}
 
     @classmethod
     def subscribe(cls, task_id: str) -> "WebSocketMessage":
@@ -137,7 +138,7 @@ class WebSocketMessage(BaseModel):
         return cls(type=WSMessageType.SUBSCRIBED, task_id=task_id)
 
     @classmethod
-    def task_update(cls, task_id: str, data: Dict[str, Any]) -> "WebSocketMessage":
+    def task_update(cls, task_id: str, data: dict[str, Any]) -> "WebSocketMessage":
         return cls(type=WSMessageType.TASK_UPDATE, task_id=task_id, data=data)
 
     @classmethod
@@ -206,7 +207,7 @@ class WebSocketMessage(BaseModel):
 
     @classmethod
     def stream_action(
-        cls, task_id: str, tool: str, args: Dict[str, Any]
+        cls, task_id: str, tool: str, args: dict[str, Any]
     ) -> "WebSocketMessage":
         """Stream agent's action decision."""
         return cls(

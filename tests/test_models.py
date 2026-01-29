@@ -1,11 +1,11 @@
 """Unit tests for models module."""
 
 from agent.orchestrator.models import (
-    Step,
-    Plan,
     ConversationMessage,
-    TaskRequest,
+    Plan,
+    Step,
     StepResult,
+    TaskRequest,
     TaskResponse,
 )
 

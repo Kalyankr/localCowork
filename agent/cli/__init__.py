@@ -10,8 +10,8 @@ import logging
 import typer
 
 from agent.cli.console import Icons, console
-from agent.version import __version__
 from agent.config import settings
+from agent.version import __version__
 
 # Configure logging
 logging.basicConfig(
@@ -71,6 +71,7 @@ def serve(
 ):
     """Start the web UI."""
     import webbrowser
+
     import uvicorn
 
     url = f"http://{host}:{port}"

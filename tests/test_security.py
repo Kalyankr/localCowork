@@ -1,7 +1,8 @@
 """Tests for the security module."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestValidatePath:
@@ -20,7 +21,7 @@ class TestValidatePath:
 
     def test_validate_path_rejects_traversal(self, tmp_path):
         """validate_path should reject paths to sensitive locations."""
-        from agent.security import validate_path, SecurityError
+        from agent.security import SecurityError, validate_path
 
         # Path resolving to /etc/passwd should be blocked as sensitive
         with pytest.raises(SecurityError):  # PathTraversalError or access denied
@@ -39,7 +40,7 @@ class TestValidatePath:
 
     def test_validate_path_nonexistent_with_must_exist(self):
         """validate_path should raise for non-existent paths when must_exist=True."""
-        from agent.security import validate_path, InputValidationError
+        from agent.security import InputValidationError, validate_path
 
         with pytest.raises((InputValidationError, FileNotFoundError)):
             validate_path("/nonexistent/path/file.txt", must_exist=True)
@@ -103,21 +104,21 @@ class TestValidateFilename:
 
     def test_validate_filename_rejects_slashes(self):
         """validate_filename should reject filenames with path separators."""
-        from agent.security import validate_filename, InputValidationError
+        from agent.security import InputValidationError, validate_filename
 
         with pytest.raises(InputValidationError):
             validate_filename("../secret.txt")
 
     def test_validate_filename_rejects_null_bytes(self):
         """validate_filename should reject filenames with null bytes."""
-        from agent.security import validate_filename, InputValidationError
+        from agent.security import InputValidationError, validate_filename
 
         with pytest.raises(InputValidationError):
             validate_filename("file\x00.txt")
 
     def test_validate_filename_max_length(self):
         """validate_filename should reject overly long filenames."""
-        from agent.security import validate_filename, InputValidationError
+        from agent.security import InputValidationError, validate_filename
 
         long_name = "a" * 300 + ".txt"
 
@@ -137,14 +138,14 @@ class TestValidateString:
 
     def test_validate_string_empty(self):
         """validate_string should reject empty strings by default."""
-        from agent.security import validate_string, InputValidationError
+        from agent.security import InputValidationError, validate_string
 
         with pytest.raises(InputValidationError):
             validate_string("", "test_field")
 
     def test_validate_string_max_length(self):
         """validate_string should enforce max_length."""
-        from agent.security import validate_string, InputValidationError
+        from agent.security import InputValidationError, validate_string
 
         with pytest.raises(InputValidationError):
             validate_string("x" * 1000, "test_field", max_length=100)
@@ -163,9 +164,9 @@ class TestSecurityError:
     def test_security_error_hierarchy(self):
         """Security exceptions should have proper hierarchy."""
         from agent.security import (
-            SecurityError,
-            PathTraversalError,
             InputValidationError,
+            PathTraversalError,
+            SecurityError,
         )
 
         assert issubclass(PathTraversalError, SecurityError)

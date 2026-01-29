@@ -1,13 +1,16 @@
 """Task Manager for tracking task lifecycle, history, and persistence."""
 
+import contextlib
 import json
-import uuid
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Callable, Any
-from enum import Enum
-from pydantic import BaseModel, Field
 import logging
+import uuid
+from collections.abc import Callable
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from agent.config import settings
 
@@ -34,7 +37,7 @@ class TaskEvent(BaseModel):
     task_id: str
     type: str  # state_change, step_progress, step_complete, error, log
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
 
 
 class Task(BaseModel):
@@ -42,24 +45,24 @@ class Task(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     request: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
     state: TaskState = TaskState.PENDING
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Plan info (populated after planning)
-    plan: Optional[Dict[str, Any]] = None
+    plan: dict[str, Any] | None = None
 
     # Execution info (populated during/after execution)
-    step_results: Dict[str, Dict[str, Any]] = {}
-    current_step: Optional[str] = None
+    step_results: dict[str, dict[str, Any]] = {}
+    current_step: str | None = None
 
     # Final output
-    summary: Optional[str] = None
-    error: Optional[str] = None
+    summary: str | None = None
+    error: str | None = None
 
     # Workspace
-    workspace_path: Optional[str] = None
+    workspace_path: str | None = None
 
     def touch(self):
         """Update the updated_at timestamp."""
@@ -75,18 +78,18 @@ class TaskManager:
 
     def __init__(
         self,
-        history_file: Optional[Path] = None,
-        workspace_root: Optional[Path] = None,
+        history_file: Path | None = None,
+        workspace_root: Path | None = None,
     ):
         self.history_file = history_file or Path(settings.history_path)
         self.workspace_root = workspace_root or Path(settings.workspace_path)
 
         # In-memory task storage
-        self._tasks: Dict[str, Task] = {}
+        self._tasks: dict[str, Task] = {}
 
         # Event subscribers
-        self._subscribers: Dict[str, List[EventCallback]] = {}  # task_id -> callbacks
-        self._global_subscribers: List[EventCallback] = []
+        self._subscribers: dict[str, list[EventCallback]] = {}  # task_id -> callbacks
+        self._global_subscribers: list[EventCallback] = []
 
         # Ensure directories exist
         self.workspace_root.mkdir(parents=True, exist_ok=True)
@@ -99,7 +102,7 @@ class TaskManager:
         """Load task history from disk."""
         if self.history_file.exists():
             try:
-                with open(self.history_file, "r") as f:
+                with open(self.history_file) as f:
                     data = json.load(f)
                     for task_data in data.get("tasks", []):
                         task = Task(**task_data)
@@ -129,7 +132,7 @@ class TaskManager:
         except Exception as e:
             logger.error(f"Failed to save task history: {e}")
 
-    def create_task(self, request: str, session_id: Optional[str] = None) -> Task:
+    def create_task(self, request: str, session_id: str | None = None) -> Task:
         """Create a new task and set up its workspace."""
         task = Task(request=request, session_id=session_id)
 
@@ -146,16 +149,16 @@ class TaskManager:
         logger.info(f"Created task {task.id}: {request[:50]}...")
         return task
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         """Get a task by ID."""
         return self._tasks.get(task_id)
 
     def get_tasks(
         self,
-        session_id: Optional[str] = None,
-        states: Optional[List[TaskState]] = None,
+        session_id: str | None = None,
+        states: list[TaskState] | None = None,
         limit: int = 50,
-    ) -> List[Task]:
+    ) -> list[Task]:
         """Get tasks, optionally filtered by session or state."""
         tasks = list(self._tasks.values())
 
@@ -174,7 +177,7 @@ class TaskManager:
         self,
         task_id: str,
         new_state: TaskState,
-        error: Optional[str] = None,
+        error: str | None = None,
     ):
         """Update task state and emit event."""
         task = self._tasks.get(task_id)
@@ -209,7 +212,7 @@ class TaskManager:
 
         logger.info(f"Task {task_id}: {old_state.value} -> {new_state.value}")
 
-    def set_plan(self, task_id: str, plan: Dict[str, Any]):
+    def set_plan(self, task_id: str, plan: dict[str, Any]):
         """Set the task's plan after generation."""
         task = self._tasks.get(task_id)
         if not task:
@@ -251,7 +254,7 @@ class TaskManager:
         self,
         task_id: str,
         step_id: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
     ):
         """Record a step's result."""
         task = self._tasks.get(task_id)
@@ -284,7 +287,7 @@ class TaskManager:
     def subscribe(
         self,
         callback: EventCallback,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
     ):
         """Subscribe to task events."""
         if task_id:
@@ -297,25 +300,21 @@ class TaskManager:
     def unsubscribe(
         self,
         callback: EventCallback,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
     ):
         """Unsubscribe from task events."""
         if task_id and task_id in self._subscribers:
-            try:
+            with contextlib.suppress(ValueError):
                 self._subscribers[task_id].remove(callback)
-            except ValueError:
-                pass
         else:
-            try:
+            with contextlib.suppress(ValueError):
                 self._global_subscribers.remove(callback)
-            except ValueError:
-                pass
 
     def _emit_event(
         self,
         task: Task,
         event_type: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ):
         """Emit an event to all subscribers."""
         event = TaskEvent(
@@ -338,20 +337,20 @@ class TaskManager:
             except Exception as e:
                 logger.error(f"Global event callback error: {e}")
 
-    def get_workspace_path(self, task_id: str) -> Optional[Path]:
+    def get_workspace_path(self, task_id: str) -> Path | None:
         """Get the workspace path for a task."""
         task = self._tasks.get(task_id)
         if task and task.workspace_path:
             return Path(task.workspace_path)
         return None
 
-    def list_workspace_files(self, task_id: str) -> Dict[str, List[str]]:
+    def list_workspace_files(self, task_id: str) -> dict[str, list[str]]:
         """List files in a task's workspace."""
         workspace = self.get_workspace_path(task_id)
         if not workspace or not workspace.exists():
             return {"input": [], "output": []}
 
-        def list_files(path: Path) -> List[str]:
+        def list_files(path: Path) -> list[str]:
             if not path.exists():
                 return []
             return [str(f.relative_to(path)) for f in path.rglob("*") if f.is_file()]
@@ -381,7 +380,7 @@ class TaskManager:
 
 
 # Singleton instance
-_task_manager: Optional[TaskManager] = None
+_task_manager: TaskManager | None = None
 
 
 def get_task_manager() -> TaskManager:

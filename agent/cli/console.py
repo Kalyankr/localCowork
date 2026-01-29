@@ -1,11 +1,11 @@
 """Console utilities and theming for LocalCowork CLI."""
 
+from rich import box
 from rich.console import Console
-from rich.theme import Theme
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
+from rich.theme import Theme
 
 # Custom theme for consistent styling
 THEME = Theme(

@@ -1,8 +1,9 @@
 """Tests for the API server endpoints."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock, AsyncMock
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 """Centralized configuration for LocalCowork using Pydantic Settings."""
 
-from typing import List
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Import version from single source of truth
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     api_key: str | None = None  # Optional API key for authentication
 
     # CORS Settings
-    cors_origins: List[str] = [
+    cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
         "http://127.0.0.1:3000",

@@ -1,8 +1,8 @@
 import asyncio
-import tempfile
-import subprocess
 import logging
 import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 from agent.config import settings
@@ -89,7 +89,7 @@ class Sandbox:
                         "output": stdout.decode() if stdout else None,
                     }
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 return {"error": f"Execution timed out after {self.timeout}s"}
             except Exception as e:
@@ -165,6 +165,6 @@ class Sandbox:
                         "error": f"Runtime error (exit {proc.returncode}):\n{stdout.decode()}"
                     }
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 return {"error": "Execution timed out"}

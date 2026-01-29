@@ -1,7 +1,8 @@
 """Tests for the LLM client."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 
 
 class TestCallLLM:
@@ -39,8 +40,9 @@ class TestCallLLM:
     @patch("agent.llm.client._get_client")
     def test_call_llm_connection_error(self, mock_get_client):
         """call_llm should raise LLMError on connection failure."""
-        from agent.llm.client import call_llm, LLMError
         from ollama import RequestError
+
+        from agent.llm.client import LLMError, call_llm
 
         mock_client = MagicMock()
         mock_client.generate.side_effect = RequestError("Connection refused")
@@ -83,7 +85,7 @@ class TestCallLLMJSON:
     @patch("agent.llm.client.call_llm")
     def test_call_llm_json_raises_after_max_retries(self, mock_call_llm):
         """call_llm_json should raise LLMError after max retries."""
-        from agent.llm.client import call_llm_json, LLMError
+        from agent.llm.client import LLMError, call_llm_json
 
         # Always return invalid JSON
         mock_call_llm.return_value = "Not valid JSON ever"
@@ -250,8 +252,9 @@ class TestAsyncLLMFunctions:
     @patch("agent.llm.client._get_async_client")
     async def test_call_llm_async_connection_error(self, mock_get_async_client):
         """call_llm_async should raise LLMError on connection failure."""
-        from agent.llm.client import call_llm_async, LLMError
         from ollama import RequestError
+
+        from agent.llm.client import LLMError, call_llm_async
 
         mock_client = AsyncMock()
         mock_client.generate.side_effect = RequestError("Connection refused")

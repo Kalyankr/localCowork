@@ -14,8 +14,9 @@ import json
 import logging
 import os
 import platform
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable, Awaitable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -23,14 +24,14 @@ from agent.config import settings
 from agent.llm.client import call_llm_json_async
 from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
 from agent.orchestrator.models import StepResult
-from agent.sandbox.sandbox_runner import Sandbox
 from agent.safety import (
+    DangerLevel,
     analyze_command,
     analyze_python_code,
-    get_affected_paths,
     format_confirmation_message,
-    DangerLevel,
+    get_affected_paths,
 )
+from agent.sandbox.sandbox_runner import Sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class Action(BaseModel):
     """An action the agent decides to take."""
 
     tool: str  # Tool name (e.g., "file_op", "python", "done")
-    args: Dict[str, Any] = {}
+    args: dict[str, Any] = {}
     description: str = ""  # Human-readable description
 
 
@@ -140,8 +141,8 @@ class AgentStep(BaseModel):
     iteration: int
     observation: Observation
     thought: Thought
-    action: Optional[Action] = None
-    result: Optional[StepResult] = None
+    action: Action | None = None
+    result: StepResult | None = None
 
 
 class AgentState(BaseModel):
@@ -149,15 +150,15 @@ class AgentState(BaseModel):
 
     goal: str
     status: str = "running"  # running, completed, failed, max_iterations
-    steps: List[AgentStep] = []
-    context: Dict[str, Any] = {}  # Variables from tool outputs
-    final_answer: Optional[str] = None
-    error: Optional[str] = None
+    steps: list[AgentStep] = []
+    context: dict[str, Any] = {}  # Variables from tool outputs
+    final_answer: str | None = None
+    error: str | None = None
 
 
 # Type for progress callback
 ProgressCallback = Callable[
-    [int, str, str, Optional[str]], None
+    [int, str, str, str | None], None
 ]  # iteration, status, thought, action
 
 # Type for confirmation callback (for dangerous operations)
@@ -189,10 +190,10 @@ class ReActAgent:
     def __init__(
         self,
         sandbox: Sandbox,
-        on_progress: Optional[ProgressCallback] = None,
-        on_confirm: Optional[ConfirmCallback] = None,  # Confirmation for dangerous ops
+        on_progress: ProgressCallback | None = None,
+        on_confirm: ConfirmCallback | None = None,  # Confirmation for dangerous ops
         max_iterations: int = MAX_ITERATIONS,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
+        conversation_history: list[dict[str, str]] | None = None,
         require_confirmation: bool = True,  # If False, skip confirmation prompts
     ):
         self.sandbox = sandbox
@@ -369,7 +370,7 @@ class ReActAgent:
 
     async def _think(
         self, state: AgentState, observation: Observation, iteration: int
-    ) -> tuple[Thought, Optional[Action], Optional[str]]:
+    ) -> tuple[Thought, Action | None, str | None]:
         """
         Ask the LLM to reason about what to do next.
 
@@ -431,7 +432,7 @@ class ReActAgent:
                 None,
             )
 
-    async def _check_safety(self, action: Action) -> tuple[bool, Optional[str]]:
+    async def _check_safety(self, action: Action) -> tuple[bool, str | None]:
         """
         Check if an action is safe to execute.
 
@@ -494,11 +495,11 @@ class ReActAgent:
         return True, None
 
     async def _execute_action(
-        self, action: Action, context: Dict[str, Any]
+        self, action: Action, context: dict[str, Any]
     ) -> StepResult:
         """Execute a single action and return the result."""
-        import subprocess
         import os
+        import subprocess
 
         try:
             # Safety check before execution
@@ -540,10 +541,7 @@ class ReActAgent:
                 cwd = action.args.get("cwd")
 
                 # Expand ~ in cwd if provided, otherwise use home
-                if cwd:
-                    cwd = os.path.expanduser(cwd)
-                else:
-                    cwd = os.path.expanduser("~")
+                cwd = os.path.expanduser(cwd) if cwd else os.path.expanduser("~")
 
                 # Expand ~ in command itself
                 command = command.replace("~/", os.path.expanduser("~") + "/")
@@ -609,7 +607,7 @@ class ReActAgent:
                 error=_sanitize_error(str(e), action.tool),
             )
 
-    async def _reflect(self, state: AgentState) -> Dict[str, Any]:
+    async def _reflect(self, state: AgentState) -> dict[str, Any]:
         """
         Reflect on whether the goal was actually achieved.
 
@@ -716,7 +714,7 @@ class ReActAgent:
             return f"{key}_{iteration}"
         return f"{action.tool}_result_{iteration}"
 
-    def _inject_context(self, code: str, context: Dict[str, Any]) -> str:
+    def _inject_context(self, code: str, context: dict[str, Any]) -> str:
         """Inject context variables into Python code."""
         injected = "import json\n"
         for name, value in context.items():
@@ -735,8 +733,8 @@ class ReActAgent:
         return output.strip()
 
     def _resolve_args(
-        self, args: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, args: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
         """Resolve context references in arguments."""
 
         def _resolve(val):
@@ -766,7 +764,7 @@ class ReActAgent:
             lines.append(f"{step.iteration}. {action_str} → {result_str}")
         return "\n".join(lines)
 
-    def _is_repeated_command(self, action: Action, steps: List[AgentStep]) -> bool:
+    def _is_repeated_command(self, action: Action, steps: list[AgentStep]) -> bool:
         """Check if this command is essentially repeating previous commands."""
         if not steps or len(steps) < 3:
             return False

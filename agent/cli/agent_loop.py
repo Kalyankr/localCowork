@@ -1,18 +1,19 @@
 """Pure agentic loop - ReAct-based autonomous agent."""
 
 import asyncio
+import contextlib
 import re
 import shutil
 import time
-from typing import Optional
+
 from rich.live import Live
 from rich.text import Text
 
 from agent.cli.console import (
     console,
+    format_duration,
     print_error,
     print_padding,
-    format_duration,
 )
 from agent.version import __version__
 
@@ -44,17 +45,13 @@ def _is_directory_listing(text: str) -> bool:
         ".Trash",
         ".CFUserTextEncoding",
     ]
-    for indicator in hidden_file_indicators:
-        if indicator in text:
-            return True
-
-    return False
+    return any(indicator in text for indicator in hidden_file_indicators)
 
 
 def run_agent(model_override: str = None):
     """Main agent loop - handles everything autonomously."""
-    from agent.llm.client import check_ollama_health
     from agent.config import settings as app_settings
+    from agent.llm.client import check_ollama_health
 
     global settings
     settings = app_settings
@@ -145,14 +142,14 @@ def _interactive_loop(model: str):
 
 def _process_input_agentic(
     user_input: str, model: str, conversation_history: list = None
-) -> Optional[str]:
+) -> str | None:
     """Process input using the ReAct agentic loop.
 
     Returns the assistant's response for conversation history.
     """
-    from agent.orchestrator.react_agent import ReActAgent
-    from agent.orchestrator.deps import get_sandbox
     from agent.llm.client import LLMError
+    from agent.orchestrator.deps import get_sandbox
+    from agent.orchestrator.react_agent import ReActAgent
 
     sandbox = get_sandbox()
 
@@ -217,7 +214,7 @@ def _process_input_agentic(
 
         return line
 
-    def on_progress(iteration: int, status: str, thought: str, action: Optional[str]):
+    def on_progress(iteration: int, status: str, thought: str, action: str | None):
         """Callback for agent progress updates."""
         current_state["iteration"] = iteration
         current_state["thought"] = thought
@@ -282,10 +279,8 @@ def _process_input_agentic(
                     return await agent.run(user_input)
                 finally:
                     update_task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await update_task
-                    except asyncio.CancelledError:
-                        pass
 
             state = asyncio.run(run_with_display())
             live.update(build_agent_display())
@@ -411,7 +406,7 @@ def _get_input() -> str:
         # Top of box
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
         # Input line with left border, user types, then we close
-        user_input = console.input(f"  [blue]│[/blue] [dim]>[/dim] ")
+        user_input = console.input("  [blue]│[/blue] [dim]>[/dim] ")
         # Bottom of box
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
         return user_input.strip()
@@ -464,7 +459,7 @@ def _show_history(conversation_history: list):
 
     width = _get_width()
 
-    for i, msg in enumerate(conversation_history):
+    for _i, msg in enumerate(conversation_history):
         role = msg["role"]
         content = msg["content"]
 
