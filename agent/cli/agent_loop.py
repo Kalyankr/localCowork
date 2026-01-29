@@ -226,10 +226,9 @@ def _process_input_agentic(
         # Map status to display status
         if status in ("thinking", "planning"):
             current_state["status"] = "thinking"
-        elif status in ("acting", "running", "executing"):
-            current_state["status"] = "executing"
         else:
-            current_state["status"] = status
+            # Any other status (acting, running, executing, success, error) shows as executing
+            current_state["status"] = "executing"
 
         if status in ("success", "error") and action:
             current_state["steps"].append(
@@ -387,9 +386,6 @@ def _show_response(text: str, model: str):
         else:
             console.print(f"    {line}")
 
-    console.print()
-    console.print()
-
 
 def _show_welcome(model: str):
     """Show welcome screen - compact with ASCII art."""
@@ -406,16 +402,23 @@ def _show_welcome(model: str):
 
 
 def _get_input() -> str:
-    """Get user input with magenta box."""
+    """Get user input with full blue rectangle box."""
     width = _get_width()
     inner_width = width - 8
     try:
         console.print()
         console.print()
-        console.print(f"  [magenta]╭{'─' * inner_width}╮[/magenta]")
-        user_input = console.input("  [magenta]│[/magenta] ")
-        console.print(f"  [magenta]╰{'─' * inner_width}╯[/magenta]")
-        console.print()
+        # Full rectangle with placeholder
+        console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
+        console.print(
+            f"  [blue]│[/blue] [dim]Ask anything...[/dim]{' ' * (inner_width - 16)}[blue]│[/blue]"
+        )
+        console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
+        # Move cursor up 2 lines and to input position
+        console.print("\033[2A\033[5G", end="")
+        user_input = input()
+        # Move down to after box
+        console.print("\033[2B", end="")
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
         console.print()
