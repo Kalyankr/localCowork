@@ -2,7 +2,10 @@
 
 import asyncio
 import contextlib
+import io
+import os
 import shutil
+import sys
 import time
 
 from rich.live import Live
@@ -15,6 +18,34 @@ from agent.cli.console import (
     print_padding,
 )
 from agent.version import __version__
+
+
+@contextlib.contextmanager
+def suppress_stderr():
+    """Suppress stderr output to prevent shell warnings from corrupting CLI display.
+
+    This captures any stderr output (from subprocesses, libraries, etc.)
+    during agent execution to maintain clean CLI output.
+    """
+    # Save original stderr
+    original_stderr = sys.stderr
+    original_fd = os.dup(2)  # Duplicate the file descriptor
+
+    try:
+        # Create a null device to absorb stderr
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 2)  # Redirect fd 2 (stderr) to devnull
+        os.close(devnull)
+
+        # Also redirect Python's stderr object
+        sys.stderr = io.StringIO()
+
+        yield
+    finally:
+        # Restore original stderr
+        os.dup2(original_fd, 2)
+        os.close(original_fd)
+        sys.stderr = original_stderr
 
 
 # Get terminal width for proper formatting
@@ -240,8 +271,11 @@ def _process_input_agentic(
 
         start_time = time.time()
 
-        # Run agent with live display
-        with Live(build_agent_display(), console=console, refresh_per_second=4) as live:
+        # Run agent with live display, suppressing stderr to prevent
+        # shell warnings from corrupting the spinner display
+        with suppress_stderr(), Live(
+            build_agent_display(), console=console, refresh_per_second=4
+        ) as live:
 
             async def run_with_display():
                 async def updater():
@@ -271,6 +305,7 @@ def _process_input_agentic(
             response_text = _show_agent_result(state, model)
         elif state.status == "failed":
             console.print(f"  [red]✗ Failed: {state.error}[/red]")
+            console.print()  # Padding after error
             response_text = f"Failed: {state.error}"
         elif state.status == "max_iterations":
             console.print(
@@ -279,17 +314,21 @@ def _process_input_agentic(
             if state.steps:
                 # Show what was accomplished
                 response_text = _show_agent_result(state, model)
+            else:
+                console.print()  # Padding if no results to show
 
         return response_text
 
     except LLMError as e:
         print_error("AI Error", str(e))
+        console.print()  # Padding after error
         return None
     except Exception as e:
         import traceback
 
         traceback.print_exc()
         print_error("Error", str(e))
+        console.print()  # Padding after error
         return None
 
 
@@ -354,6 +393,9 @@ def _show_response(text: str, model: str):
         else:
             console.print(f"    {line}")
 
+    # Add trailing padding for visual separation
+    console.print()
+
 
 def _show_welcome(model: str):
     """Show welcome screen - compact with ASCII art."""
@@ -367,13 +409,20 @@ def _show_welcome(model: str):
         "  [bold cyan]███████╗[/bold cyan]  [dim]Type a request or /help[/dim]"
     )
     console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
+    # Bottom margin to keep content away from terminal edge
+    print_padding(2)
 
 
 def _get_input() -> str:
-    """Get user input with blue rectangle box."""
+    """Get user input with blue rectangle box.
+
+    Includes top padding for visual separation and bottom margin
+    to keep content away from terminal edge.
+    """
     width = _get_width()
     inner_width = width - 8
     try:
+        # Top padding for separation from previous content
         console.print()
         console.print()
         # Top of box
@@ -382,6 +431,8 @@ def _get_input() -> str:
         user_input = console.input("  [blue]│[/blue] [dim]>[/dim] ")
         # Bottom of box
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
+        # Bottom margin - breathing room from terminal edge
+        console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
         console.print()

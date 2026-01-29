@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -31,12 +31,17 @@ class TaskState(str, Enum):
     CANCELLED = "cancelled"  # User cancelled mid-execution
 
 
+def _now_utc() -> datetime:
+    """Get current UTC datetime (timezone-aware)."""
+    return datetime.now(UTC)
+
+
 class TaskEvent(BaseModel):
     """Event emitted during task lifecycle for real-time streaming."""
 
     task_id: str
     type: str  # state_change, step_progress, step_complete, error, log
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=_now_utc)
     data: dict[str, Any] = {}
 
 
@@ -47,8 +52,8 @@ class Task(BaseModel):
     request: str
     session_id: str | None = None
     state: TaskState = TaskState.PENDING
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_now_utc)
+    updated_at: datetime = Field(default_factory=_now_utc)
 
     # Plan info (populated after planning)
     plan: dict[str, Any] | None = None
@@ -66,7 +71,7 @@ class Task(BaseModel):
 
     def touch(self):
         """Update the updated_at timestamp."""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _now_utc()
 
 
 # Type alias for event callbacks
@@ -169,7 +174,14 @@ class TaskManager:
             tasks = [t for t in tasks if t.state in states]
 
         # Sort by created_at descending
-        tasks.sort(key=lambda t: t.created_at, reverse=True)
+        # Handle both timezone-aware and naive datetimes for backward compatibility
+        def sort_key(t: Task) -> datetime:
+            if t.created_at.tzinfo is None:
+                # Convert naive datetime to UTC for comparison
+                return t.created_at.replace(tzinfo=UTC)
+            return t.created_at
+
+        tasks.sort(key=sort_key, reverse=True)
 
         return tasks[:limit]
 
@@ -364,7 +376,7 @@ class TaskManager:
         """Clean up old task workspaces."""
         from datetime import timedelta
 
-        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        cutoff = _now_utc() - timedelta(days=max_age_days)
 
         for task in list(self._tasks.values()):
             if task.created_at < cutoff:

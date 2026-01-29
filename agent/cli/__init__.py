@@ -6,17 +6,37 @@ Two ways to use:
 """
 
 import logging
+import warnings
 
 import typer
+from rich.logging import RichHandler
 
 from agent.cli.console import Icons, console
 from agent.config import settings
 from agent.version import __version__
 
-# Configure logging
+# Suppress Python deprecation warnings to keep CLI output clean
+# These come from third-party libraries and clutter the user experience
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# Configure logging with Rich handler for console-aware output
+# This integrates properly with Rich's Live display and prevents
+# log messages from corrupting the CLI spinner
 logging.basicConfig(
-    level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.WARNING,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(console=console, show_time=False, show_path=False, markup=True)],
 )
+
+# Silence noisy third-party loggers
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+logging.getLogger("ollama").setLevel(logging.ERROR)
+logging.getLogger("uvicorn").setLevel(logging.ERROR)
+logging.getLogger("asyncio").setLevel(logging.ERROR)
 
 app = typer.Typer(
     name="localcowork",
