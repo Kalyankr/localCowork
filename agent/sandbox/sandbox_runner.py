@@ -37,7 +37,7 @@ class Sandbox:
                 logger.warning("Docker is not available for sandboxed execution")
         return self._docker_available
 
-    async def run_python(self, code: str, working_dir: str = None) -> dict:
+    async def run_python(self, code: str, working_dir: str | None = None) -> dict:
         """
         Execute Python code.
 
@@ -49,7 +49,7 @@ class Sandbox:
         else:
             return await self._run_docker(code)
 
-    async def _run_permissive(self, code: str, working_dir: str = None) -> dict:
+    async def _run_permissive(self, code: str, working_dir: str | None = None) -> dict:
         """
         Run Python code directly with full system access.
         This is the Cowork-style mode for agentic tasks.

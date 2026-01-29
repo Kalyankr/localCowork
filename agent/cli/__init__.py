@@ -28,7 +28,9 @@ logging.basicConfig(
     level=logging.WARNING,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(console=console, show_time=False, show_path=False, markup=True)],
+    handlers=[
+        RichHandler(console=console, show_time=False, show_path=False, markup=True)
+    ],
 )
 
 # Silence noisy third-party loggers

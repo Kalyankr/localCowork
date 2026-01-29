@@ -186,7 +186,9 @@ class WebSocketMessage(BaseModel):
         )
 
     @classmethod
-    def stream_end(cls, task_id: str, full_response: str = None) -> "WebSocketMessage":
+    def stream_end(
+        cls, task_id: str, full_response: str | None = None
+    ) -> "WebSocketMessage":
         """Signal the end of a streaming response."""
         return cls(
             type=WSMessageType.STREAM_END,

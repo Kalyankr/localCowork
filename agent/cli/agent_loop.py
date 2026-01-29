@@ -273,9 +273,10 @@ def _process_input_agentic(
 
         # Run agent with live display, suppressing stderr to prevent
         # shell warnings from corrupting the spinner display
-        with suppress_stderr(), Live(
-            build_agent_display(), console=console, refresh_per_second=4
-        ) as live:
+        with (
+            suppress_stderr(),
+            Live(build_agent_display(), console=console, refresh_per_second=4) as live,
+        ):
 
             async def run_with_display():
                 async def updater():

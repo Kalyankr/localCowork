@@ -10,6 +10,7 @@ import contextlib
 import logging
 import uuid
 from collections import defaultdict
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -74,7 +75,7 @@ class ConnectionManager:
         for conn in dead:
             self.disconnect(conn)
 
-    async def send_step_output(self, task_id: str, step: str, output: any):
+    async def send_step_output(self, task_id: str, step: str, output: Any):
         """Send step output to task subscribers."""
         await self.broadcast(
             task_id, WebSocketMessage.step_output(task_id, step, output)

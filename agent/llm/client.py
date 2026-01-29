@@ -14,6 +14,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator
+from typing import Any
 
 import ollama
 from ollama import AsyncClient, RequestError, ResponseError
@@ -120,7 +121,7 @@ def call_llm(prompt: str, force_json: bool = False) -> str:
         raise LLMError(f"LLM request failed: {e}")
 
 
-def call_llm_chat(messages: list[dict[str, str]], model: str = None) -> str:
+def call_llm_chat(messages: list[dict[str, str]], model: str | None = None) -> str:
     """
     Calls Ollama with chat messages format.
 
@@ -155,10 +156,10 @@ def call_llm_chat(messages: list[dict[str, str]], model: str = None) -> str:
     except ResponseError as e:
         raise LLMError(f"Ollama error: {e}")
     except Exception as e:
-        raise LLMError(f"LLM chat request failed: {e}")
+        raise LLMError(f"LLM chat request failed: {e}") from e
 
 
-def call_llm_json(prompt: str) -> dict:
+def call_llm_json(prompt: str) -> dict[str, Any]:
     """
     Calls Ollama and guarantees valid JSON output.
     Uses Ollama's native JSON mode for reliable structured output.
@@ -208,7 +209,7 @@ def call_llm_json(prompt: str) -> dict:
                 )
 
 
-def repair_json(text: str) -> dict:
+def repair_json(text: str) -> dict[str, Any]:
     """
     Attempts to fix common LLM JSON errors:
     - Literal newlines within string values
@@ -347,7 +348,7 @@ def list_models() -> list[str]:
         return []
 
 
-def check_model_exists(model_name: str = None) -> bool:
+def check_model_exists(model_name: str | None = None) -> bool:
     """Check if a model exists in Ollama.
 
     Args:
@@ -430,7 +431,9 @@ async def call_llm_async(prompt: str, force_json: bool = False) -> str:
         raise LLMError(f"Async LLM request failed: {e}")
 
 
-async def call_llm_chat_async(messages: list[dict[str, str]], model: str = None) -> str:
+async def call_llm_chat_async(
+    messages: list[dict[str, str]], model: str | None = None
+) -> str:
     """
     Async version of call_llm_chat.
 
@@ -465,10 +468,10 @@ async def call_llm_chat_async(messages: list[dict[str, str]], model: str = None)
     except ResponseError as e:
         raise LLMError(f"Ollama error: {e}")
     except Exception as e:
-        raise LLMError(f"Async LLM chat request failed: {e}")
+        raise LLMError(f"Async LLM chat request failed: {e}") from e
 
 
-async def call_llm_json_async(prompt: str) -> dict:
+async def call_llm_json_async(prompt: str) -> dict[str, Any]:
     """
     Async version of call_llm_json. Guarantees valid JSON output.
 

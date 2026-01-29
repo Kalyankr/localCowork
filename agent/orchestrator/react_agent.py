@@ -493,7 +493,7 @@ class ReActAgent:
                 command = command.replace("~/", os.path.expanduser("~") + "/")
 
                 try:
-                    result = subprocess.run(
+                    proc_result = subprocess.run(
                         command,
                         shell=True,
                         capture_output=True,
@@ -502,16 +502,16 @@ class ReActAgent:
                         env={**os.environ, "HOME": os.path.expanduser("~")},
                     )
 
-                    output = result.stdout.decode(errors="replace")
-                    stderr = result.stderr.decode(errors="replace")
+                    output = proc_result.stdout.decode(errors="replace")
+                    stderr = proc_result.stderr.decode(errors="replace")
 
                     # Non-zero exit isn't always an error (e.g., grep no match)
                     # Return both stdout and stderr for context
-                    if result.returncode != 0:
+                    if proc_result.returncode != 0:
                         raw_error = (
-                            f"Exit {result.returncode}: {stderr}"
+                            f"Exit {proc_result.returncode}: {stderr}"
                             if stderr
-                            else f"Exit {result.returncode}"
+                            else f"Exit {proc_result.returncode}"
                         )
                         return StepResult(
                             step_id="shell",

@@ -155,9 +155,9 @@ def analyze_command(command: str) -> tuple[DangerLevel, str | None]:
         # Split by pipe and check each part
         pipe_parts = command.split("|")
         for part in pipe_parts:
-            level, reason = analyze_command(part.strip())
+            level, part_reason = analyze_command(part.strip())
             if level in (DangerLevel.DANGEROUS, DangerLevel.BLOCKED):
-                return level, f"Pipeline contains dangerous command: {reason}"
+                return level, f"Pipeline contains dangerous command: {part_reason}"
 
     return DangerLevel.SAFE, None
 
@@ -225,7 +225,7 @@ def get_affected_paths(command: str) -> list[str]:
     Returns:
         List of paths that would be affected
     """
-    paths = []
+    paths: list[str] = []
 
     try:
         parts = shlex.split(command)

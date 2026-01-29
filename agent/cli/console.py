@@ -52,7 +52,7 @@ class Icons:
     WARNING = "⚠"
 
 
-def print_header(title: str, subtitle: str = None):
+def print_header(title: str, subtitle: str | None = None):
     """Print a styled header."""
     content = f"[bold]{title}[/bold]"
     if subtitle:
@@ -65,7 +65,7 @@ def print_success(message: str):
     console.print(f"[success]{Icons.SUCCESS}[/success] {message}")
 
 
-def print_error(message: str, detail: str = None):
+def print_error(message: str, detail: str | None = None):
     """Print an error message."""
     console.print(f"[error]{Icons.ERROR}[/error] {message}")
     if detail:

@@ -8,7 +8,6 @@ This module contains prompts for the ReAct agent.
 # ReAct Agent Prompts
 # =============================================================================
 
-
 REACT_STEP_PROMPT = """You are LocalCowork, an AI assistant with full access to the user's machine.
 
 ## ENVIRONMENT
