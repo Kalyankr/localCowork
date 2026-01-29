@@ -1,6 +1,5 @@
 """Centralized configuration for LocalCowork using Pydantic Settings."""
 
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Import version from single source of truth
