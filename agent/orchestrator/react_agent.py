@@ -678,25 +678,6 @@ class ReActAgent:
             pass
         return output.strip()
 
-    def _resolve_args(
-        self, args: dict[str, Any], context: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Resolve context references in arguments."""
-
-        def _resolve(val):
-            if isinstance(val, str):
-                # Check if it's a context reference
-                if val in context:
-                    return context[val]
-                return val
-            if isinstance(val, list):
-                return [_resolve(v) for v in val]
-            if isinstance(val, dict):
-                return {k: _resolve(v) for k, v in val.items()}
-            return val
-
-        return {k: _resolve(v) for k, v in args.items()}
-
     def _summarize_steps(self, state: AgentState) -> str:
         """Summarize all steps for reflection."""
         lines = []

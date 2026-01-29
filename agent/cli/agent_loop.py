@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import re
 import shutil
 import time
 
@@ -22,30 +21,6 @@ from agent.version import __version__
 def _get_width() -> int:
     """Get terminal width, with a reasonable default."""
     return min(shutil.get_terminal_size().columns - 4, 100)
-
-
-def _is_directory_listing(text: str) -> bool:
-    """Check if text looks like a directory listing (ls -la output)."""
-    lines = text.strip().split("\n")
-    if len(lines) < 2:
-        return False
-
-    # Check for ls -la style output (drwxr-xr-x, -rw-r--r--, etc.)
-    permission_pattern = re.compile(r"^[drwxlst-]{10}")
-    matching_lines = sum(1 for line in lines if permission_pattern.match(line.strip()))
-
-    # If more than 50% of lines look like permission strings, it's a directory listing
-    if matching_lines > len(lines) * 0.5:
-        return True
-
-    # Also check for common hidden files that appear in ls output
-    hidden_file_indicators = [
-        ".DS_Store",
-        ".localized",
-        ".Trash",
-        ".CFUserTextEncoding",
-    ]
-    return any(indicator in text for indicator in hidden_file_indicators)
 
 
 def run_agent(model_override: str = None):
@@ -316,8 +291,6 @@ def _process_input_agentic(
         traceback.print_exc()
         print_error("Error", str(e))
         return None
-
-    console.print()
 
 
 def _show_agent_result(state, model: str) -> str:

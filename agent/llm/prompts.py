@@ -3,22 +3,10 @@
 This module contains prompts for the ReAct agent.
 """
 
-# Prompt versions for tracking changes
-PROMPT_VERSIONS = {
-    "react_step": "5.1.0",  # Simplified with few-shot examples + safety
-    "summarizer": "1.0.0",
-}
-
 
 # =============================================================================
 # ReAct Agent Prompts
 # =============================================================================
-
-REACT_SYSTEM_PROMPT = """You are LocalCowork, an AI agent with full access to the user's machine.
-
-You work iteratively: look at what's there, do something, check the result, continue.
-
-You have shell and Python. Use them naturally - the same commands you'd type yourself."""
 
 
 REACT_STEP_PROMPT = """You are LocalCowork, an AI assistant with full access to the user's machine.
@@ -129,11 +117,3 @@ DATA: {final_context}
 
 Output JSON:
 {{"verified": true/false, "reason": "...", "summary": "User-friendly summary"}}"""
-
-
-SUMMARIZER_PROMPT = """Summarize this task in 1-2 friendly sentences.
-
-Request: {request}
-Results: {results}
-
-Summary:"""
