@@ -573,20 +573,14 @@ class ReActAgent:
                             step_id="shell",
                             status="error",
                             output=None,  # Don't expose raw output on error
-                            error=self._sanitize_error(raw_error, "shell command"),
+                            error=_sanitize_error(raw_error, "shell command"),
                         )
 
-                    # Include stderr in output if present (warnings, progress, etc.)
-                    final_output = output
-                    if stderr and not output:
-                        final_output = stderr
-                    elif stderr and output:
-                        final_output = output + "\n[stderr]: " + stderr[:200]
-
+                    # Only return stdout on success, ignore stderr (warnings/progress)
                     return StepResult(
                         step_id="shell",
                         status="success",
-                        output=final_output or "(no output)",
+                        output=output.strip() or "(no output)",
                     )
                 except subprocess.TimeoutExpired:
                     return StepResult(
@@ -598,7 +592,7 @@ class ReActAgent:
                     return StepResult(
                         step_id="shell",
                         status="error",
-                        error=self._sanitize_error(str(e), "shell command"),
+                        error=_sanitize_error(str(e), "shell command"),
                     )
 
             # Unknown tool - only shell and python are supported
@@ -612,7 +606,7 @@ class ReActAgent:
             return StepResult(
                 step_id=f"action_{action.tool}",
                 status="error",
-                error=self._sanitize_error(str(e), action.tool),
+                error=_sanitize_error(str(e), action.tool),
             )
 
     async def _reflect(self, state: AgentState) -> Dict[str, Any]:
@@ -815,5 +809,5 @@ class ReActAgent:
             elif current_cmd.strip() == prev_cmd.strip():
                 return True  # Exact repeat
 
-        # If we've run 3+ similar search commands, we're likely stuck
-        return similar_count >= 3
+        # If we've run 2+ similar search commands, we're likely stuck
+        return similar_count >= 2

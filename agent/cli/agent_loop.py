@@ -5,7 +5,6 @@ import re
 import shutil
 import time
 from typing import Optional
-from rich.panel import Panel
 from rich.live import Live
 from rich.text import Text
 
@@ -171,52 +170,50 @@ def _process_input_agentic(
     frame_idx = [0]  # Use list to mutate in closure
 
     def build_agent_display():
-        """Build minimal spinner display with hidden details."""
+        """Build spinner display showing current activity."""
         frame_idx[0] = (frame_idx[0] + 1) % len(spinner_frames)
         spinner = spinner_frames[frame_idx[0]]
 
         iteration = current_state["iteration"]
         status = current_state["status"]
         steps = current_state["steps"]
+        action = current_state["action"]
 
-        # Build single-line spinner display
+        # Build display
         line = Text()
         line.append("  ")
 
         if status == "thinking":
             line.append(f"{spinner} ", style="bold yellow")
-            line.append("Thinking", style="bold yellow")
+            line.append("Thinking...", style="yellow")
         elif status == "executing":
             line.append(f"{spinner} ", style="bold cyan")
-            line.append("Executing", style="bold cyan")
-
-        # Show step count
-        if iteration > 0:
-            line.append("  ", style="dim")
-            line.append(f"step {iteration}", style="dim")
-
-        # Show completed steps as dots
-        if steps:
-            line.append("  ", style="dim")
-            for step in steps[-5:]:
-                _, _, step_status, _ = step
-                if step_status == "success":
-                    line.append("●", style="green")
-                elif step_status == "error":
-                    line.append("●", style="red")
+            # Show what's being executed
+            if action:
+                if action.startswith("shell:"):
+                    cmd = action[6:].strip()
+                    if len(cmd) > 50:
+                        cmd = cmd[:47] + "..."
+                    line.append(f"$ {cmd}", style="cyan")
+                elif action.startswith("python:"):
+                    line.append("Running Python...", style="cyan")
                 else:
-                    line.append("○", style="dim")
+                    line.append("Executing...", style="cyan")
+            else:
+                line.append("Executing...", style="cyan")
 
-        # Current action hint (truncated)
-        if current_state["action"]:
-            action_text = current_state["action"]
-            if action_text.startswith("shell:"):
-                action_text = action_text[6:].strip()
-            elif action_text.startswith("python:"):
-                action_text = "py"
-            if len(action_text) > 40:
-                action_text = action_text[:37] + "..."
-            line.append(f"  {action_text}", style="dim")
+        # Show step count and progress dots
+        if iteration > 0 or steps:
+            line.append("  ", style="dim")
+            if steps:
+                for step in steps[-5:]:
+                    _, _, step_status, _ = step
+                    if step_status == "success":
+                        line.append("●", style="green")
+                    elif step_status == "error":
+                        line.append("●", style="red")
+                    else:
+                        line.append("○", style="dim")
 
         return line
 
@@ -364,96 +361,7 @@ Be concise and conversational. Focus on what was achieved."""
 
     _show_response(summary, model)
 
-    # Show actual data from context if there's meaningful output
-    _show_context_data(state.context)
-
     return summary
-
-
-def _show_context_data(context: dict):
-    """Display actual data collected by the agent."""
-    if not context:
-        return
-
-    width = _get_width()
-
-    # Filter out non-displayable or uninteresting context
-    displayable = {}
-    for key, value in context.items():
-        if value is None or value == "" or value == []:
-            continue
-        # Skip error outputs or code that failed
-        if isinstance(value, str):
-            if "SyntaxError" in value or "Traceback" in value or "Error:" in value:
-                continue
-            if value.startswith("import ") or value.startswith("def "):
-                continue
-            # Skip raw directory listings (ls -la output, file permissions, etc.)
-            if _is_directory_listing(value):
-                continue
-            # Skip very short outputs (likely just confirmations)
-            if len(value.strip()) < 10:
-                continue
-        displayable[key] = value
-
-    if not displayable:
-        return
-
-    # Build output lines
-    output_lines = []
-    max_lines = 50  # Total max lines to show
-
-    for key, value in displayable.items():
-        if len(output_lines) >= max_lines:
-            output_lines.append("[dim]... output truncated ...[/dim]")
-            break
-
-        if isinstance(value, list):
-            # Show list items
-            items_to_show = min(len(value), max_lines - len(output_lines))
-            for item in value[:items_to_show]:
-                item_str = str(item)
-                if len(item_str) > width - 8:
-                    item_str = item_str[: width - 11] + "..."
-                output_lines.append(f"  • {item_str}")
-            if len(value) > items_to_show:
-                output_lines.append(
-                    f"  [dim]... and {len(value) - items_to_show} more[/dim]"
-                )
-
-        elif isinstance(value, dict):
-            import json
-
-            formatted = json.dumps(value, indent=2, default=str)
-            for line in formatted.split("\n")[:20]:
-                if len(line) > width - 4:
-                    line = line[: width - 7] + "..."
-                output_lines.append(f"  {line}")
-
-        elif isinstance(value, str):
-            lines = value.strip().split("\n")
-            lines_to_show = min(len(lines), max_lines - len(output_lines))
-            for line in lines[:lines_to_show]:
-                if len(line) > width - 4:
-                    line = line[: width - 7] + "..."
-                output_lines.append(f"  {line}")
-            if len(lines) > lines_to_show:
-                output_lines.append(
-                    f"  [dim]... {len(lines) - lines_to_show} more lines[/dim]"
-                )
-        else:
-            output_lines.append(f"  {value}")
-
-    if output_lines:
-        panel = Panel(
-            "\n".join(output_lines),
-            title="[dim]Output[/dim]",
-            title_align="left",
-            border_style="dim",
-            padding=(0, 1),
-            width=width,
-        )
-        console.print(panel)
 
 
 def _show_response(text: str, model: str):
@@ -480,6 +388,7 @@ def _show_response(text: str, model: str):
             console.print(f"    {line}")
 
     console.print()
+    console.print()
 
 
 def _show_welcome(model: str):
@@ -497,13 +406,16 @@ def _show_welcome(model: str):
 
 
 def _get_input() -> str:
-    """Get user input with box prompt."""
+    """Get user input with magenta box."""
     width = _get_width()
+    inner_width = width - 8
     try:
         console.print()
-        console.print(f"  [bright_black]╭{'─' * (width - 8)}╮[/bright_black]")
-        user_input = console.input("  [bright_black]│[/bright_black] ")
-        console.print(f"  [bright_black]╰{'─' * (width - 8)}╯[/bright_black]")
+        console.print()
+        console.print(f"  [magenta]╭{'─' * inner_width}╮[/magenta]")
+        user_input = console.input("  [magenta]│[/magenta] ")
+        console.print(f"  [magenta]╰{'─' * inner_width}╯[/magenta]")
+        console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
         console.print()
