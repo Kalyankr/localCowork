@@ -429,10 +429,14 @@ def _get_input() -> str:
     width = _get_width()
     inner_width = width - 8
     try:
-        # Top padding for separation from previous content
+        # Scroll buffer: print empty lines to ensure input box isn't at terminal bottom
+        # These lines push content up, creating breathing room below
         console.print()
         console.print()
         console.print()
+        # Now move cursor back up to where we want the input box
+        sys.stdout.write("\033[2A")
+        sys.stdout.flush()
 
         # Print complete box first (top, middle with prompt, bottom)
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
@@ -454,8 +458,7 @@ def _get_input() -> str:
         sys.stdout.write("\033[2B\r")
         sys.stdout.flush()
 
-        # Bottom margin - breathing room from terminal edge
-        console.print()
+        # Bottom margin
         console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
