@@ -17,6 +17,7 @@
             --success: #22c55e;
             --error: #ef4444;
             --warning: #f59e0b;
+            --cyan: #06b6d4;
         }
         
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +33,7 @@
         
         /* Header */
         .header {
-            padding: 1rem 1.5rem;
+            padding: 0.75rem 1.5rem;
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
@@ -47,22 +48,25 @@
         }
         
         .logo h1 {
-            font-size: 1.25rem;
+            font-size: 1.125rem;
             font-weight: 600;
         }
         
-        .status-badge {
+        .logo-version {
             font-size: 0.7rem;
-            padding: 0.25rem 0.5rem;
+            color: var(--text-dim);
+        }
+        
+        .status-badge {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.5rem;
             border-radius: 9999px;
             background: var(--success);
             color: white;
+            font-weight: 500;
         }
         
-        .status-badge.disconnected {
-            background: var(--error);
-        }
-        
+        .status-badge.disconnected { background: var(--error); }
         .status-badge.connecting {
             background: var(--warning);
             animation: pulse 1.5s infinite;
@@ -73,42 +77,174 @@
             50% { opacity: 0.5; }
         }
         
+        .header-center {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .model-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .model-selector label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+        
+        .model-selector select {
+            background: transparent;
+            border: none;
+            color: var(--cyan);
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+        }
+        
+        .model-selector select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+        
         .header-actions {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.375rem;
+            align-items: center;
         }
         
         .icon-btn {
             background: transparent;
             border: 1px solid var(--border);
             color: var(--text-dim);
-            padding: 0.5rem;
-            border-radius: 8px;
+            padding: 0.375rem 0.5rem;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 1rem;
+            font-size: 0.875rem;
+            transition: all 0.2s;
         }
         
         .icon-btn:hover {
             background: var(--surface-hover);
             color: var(--text);
+            border-color: var(--text-dim);
+        }
+        
+        .icon-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        
+        /* Main layout */
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s;
+        }
+        
+        .sidebar.hidden {
+            transform: translateX(-100%);
+            position: absolute;
+            height: 100%;
+            z-index: 10;
+        }
+        
+        .sidebar-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .sidebar-header h3 {
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+        
+        .history-item {
+            padding: 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 0.25rem;
+            transition: background 0.2s;
+        }
+        
+        .history-item:hover {
+            background: var(--surface-hover);
+        }
+        
+        .history-item.active {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid var(--accent);
+        }
+        
+        .history-item-title {
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.25rem;
+        }
+        
+        .history-item-meta {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+        }
+        
+        .no-history {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: var(--text-dim);
+            font-size: 0.85rem;
         }
         
         /* Chat Area */
+        .chat-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        
         .chat-container {
             flex: 1;
             overflow-y: auto;
             padding: 1rem 1.5rem;
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 0.75rem;
         }
         
         .message {
             max-width: 85%;
-            padding: 1rem 1.25rem;
-            border-radius: 16px;
+            padding: 0.875rem 1rem;
+            border-radius: 12px;
             line-height: 1.6;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
         }
         
         .message.user {
@@ -129,8 +265,9 @@
             border: 1px dashed var(--border);
             align-self: center;
             color: var(--text-dim);
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             max-width: 100%;
+            white-space: pre-wrap;
         }
         
         .message.error {
@@ -139,62 +276,201 @@
             color: var(--error);
         }
         
-        /* Thinking indicator */
-        .thinking {
+        .message-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+        }
+        
+        /* Progress indicator */
+        .progress-container {
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            padding: 1rem 1.25rem;
+            padding: 1rem;
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: 12px;
             align-self: flex-start;
             max-width: 85%;
         }
         
-        .thinking-dots {
+        .progress-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .progress-content {
+            flex: 1;
+        }
+        
+        .progress-action {
+            font-size: 0.85rem;
+            color: var(--text);
+            margin-bottom: 0.25rem;
+        }
+        
+        .progress-action.shell { color: var(--cyan); }
+        .progress-action.python { color: var(--success); }
+        .progress-action.web { color: var(--warning); }
+        
+        .progress-steps {
             display: flex;
             gap: 4px;
+            align-items: center;
         }
         
-        .thinking-dots span {
+        .step-dot {
             width: 8px;
             height: 8px;
-            background: var(--accent);
             border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out;
+            background: var(--border);
         }
         
-        .thinking-dots span:nth-child(1) { animation-delay: 0s; }
-        .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
-        .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
-        
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
-            40% { transform: scale(1); opacity: 1; }
+        .step-dot.success { background: var(--success); }
+        .step-dot.error { background: var(--error); }
+        .step-dot.current { 
+            background: var(--accent);
+            animation: pulse 1s infinite;
         }
         
-        .thinking-text {
+        .progress-iteration {
+            font-size: 0.7rem;
             color: var(--text-dim);
-            font-size: 0.9rem;
+            margin-left: 0.5rem;
         }
         
-        /* Data output */
-        .data-output {
+        /* Confirmation Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        
+        .modal-overlay.hidden { display: none; }
+        
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            padding: 1.5rem;
+        }
+        
+        .modal-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .modal-header .icon { font-size: 1.5rem; }
+        .modal-header h3 { font-size: 1.1rem; color: var(--warning); }
+        
+        .modal-body { margin-bottom: 1.5rem; }
+        .modal-body p { font-size: 0.9rem; color: var(--text-dim); margin-bottom: 1rem; }
+        
+        .modal-command {
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 0.75rem 1rem;
-            margin-top: 0.75rem;
-            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            padding: 0.75rem;
+            font-family: 'SF Mono', Monaco, monospace;
             font-size: 0.85rem;
-            max-height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-word;
+            color: var(--error);
+            word-break: break-all;
         }
         
-        .data-output:empty { display: none; }
+        .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+        
+        .modal-btn {
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .modal-btn.cancel {
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        
+        .modal-btn.cancel:hover { background: var(--border); }
+        
+        .modal-btn.confirm {
+            background: var(--error);
+            border: none;
+            color: white;
+        }
+        
+        .modal-btn.confirm:hover { background: #dc2626; }
+        
+        /* Command autocomplete */
+        .autocomplete {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: none;
+            overflow: hidden;
+        }
+        
+        .autocomplete.show { display: block; }
+        
+        .autocomplete-item {
+            padding: 0.625rem 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: background 0.15s;
+        }
+        
+        .autocomplete-item:hover,
+        .autocomplete-item.selected {
+            background: var(--surface-hover);
+        }
+        
+        .autocomplete-item .cmd {
+            color: var(--cyan);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .autocomplete-item .desc {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
         
         /* Input Area */
         .input-area {
@@ -208,47 +484,56 @@
             gap: 0.75rem;
             max-width: 900px;
             margin: 0 auto;
+            position: relative;
         }
         
         #message-input {
             flex: 1;
             background: var(--bg);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 0.875rem 1rem;
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
             color: var(--text);
-            font-size: 1rem;
+            font-size: 0.95rem;
             outline: none;
             transition: border-color 0.2s;
         }
         
-        #message-input:focus {
-            border-color: var(--accent);
-        }
-        
-        #message-input::placeholder {
-            color: var(--text-dim);
-        }
+        #message-input:focus { border-color: var(--accent); }
+        #message-input::placeholder { color: var(--text-dim); }
         
         #send-btn {
             background: var(--accent);
             color: white;
             border: none;
-            border-radius: 12px;
-            padding: 0 1.5rem;
-            font-size: 1rem;
+            border-radius: 10px;
+            padding: 0 1.25rem;
+            font-size: 0.9rem;
             font-weight: 500;
             cursor: pointer;
             transition: background 0.2s;
         }
         
-        #send-btn:hover {
-            background: var(--accent-hover);
+        #send-btn:hover { background: var(--accent-hover); }
+        #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        /* Keyboard hints */
+        .keyboard-hints {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            padding: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-dim);
         }
         
-        #send-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        .keyboard-hints kbd {
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.125rem 0.375rem;
+            font-family: inherit;
+            font-size: 0.65rem;
         }
         
         /* Empty state */
@@ -262,31 +547,25 @@
             padding: 2rem;
         }
         
-        .empty-state h2 {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-        
-        .empty-state p {
-            color: var(--text-dim);
-            margin-bottom: 1.5rem;
-        }
+        .empty-state h2 { font-size: 1.375rem; margin-bottom: 0.5rem; }
+        .empty-state p { color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem; }
         
         .examples {
             display: flex;
             flex-wrap: wrap;
             gap: 0.5rem;
             justify-content: center;
+            max-width: 600px;
         }
         
         .example-btn {
             background: var(--surface);
             border: 1px solid var(--border);
             color: var(--text);
-            padding: 0.5rem 1rem;
+            padding: 0.5rem 0.875rem;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             transition: all 0.2s;
         }
         
@@ -296,109 +575,129 @@
         }
         
         /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
         
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-dim);
-        }
-        
-        /* Streaming message styles */
-        .message.streaming {
-            min-height: 1.6em;
-        }
-        
-        .message.streaming-active::after {
-            content: '▋';
-            animation: blink 1s infinite;
-            margin-left: 2px;
-            color: var(--accent);
-        }
-        
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
-        }
-        
-        /* Streaming toggle */
-        .header-actions {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-        }
-        
-        .stream-toggle {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.8rem;
-            color: var(--text-dim);
-        }
-        
-        .stream-toggle input[type="checkbox"] {
-            accent-color: var(--accent);
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .header-center { display: none; }
+            .keyboard-hints { display: none; }
         }
     </style>
 </head>
 <body>
     <header class="header">
         <div class="logo">
-            <span style="font-size: 1.5rem;">🤖</span>
+            <span style="font-size: 1.25rem;">🤖</span>
             <h1>LocalCowork</h1>
+            <span class="logo-version">v0.3.0</span>
             <span class="status-badge connecting" id="status-badge">Connecting</span>
         </div>
+        <div class="header-center">
+            <div class="model-selector">
+                <label>Model:</label>
+                <select id="model-select" onchange="changeModel(this.value)">
+                    <option value="mistral">mistral</option>
+                    <option value="llama3.2">llama3.2</option>
+                    <option value="codellama">codellama</option>
+                    <option value="deepseek-coder">deepseek-coder</option>
+                    <option value="qwen2.5-coder">qwen2.5-coder</option>
+                </select>
+            </div>
+        </div>
         <div class="header-actions">
-            <label class="stream-toggle">
-                <input type="checkbox" id="stream-toggle" checked onchange="useStreaming = this.checked">
-                <span>Stream</span>
-            </label>
-            <button class="icon-btn" onclick="clearChat()" title="Clear chat">🗑️</button>
+            <button class="icon-btn" id="sidebar-toggle" onclick="toggleSidebar()" title="History (Ctrl+H)">📜</button>
+            <button class="icon-btn" onclick="showStatus()" title="Status (Ctrl+I)">ℹ️</button>
+            <button class="icon-btn" onclick="clearChat()" title="Clear (Ctrl+K)">🗑️</button>
         </div>
     </header>
     
-    <div class="chat-container" id="chat-container">
-        <div class="empty-state" id="empty-state">
-            <h2>👋 Hey there!</h2>
-            <p>I'm your local AI assistant. Ask me to do anything.</p>
-            <div class="examples">
-                <button class="example-btn" onclick="useExample(this)">List files in my home directory</button>
-                <button class="example-btn" onclick="useExample(this)">What's the current date and time?</button>
-                <button class="example-btn" onclick="useExample(this)">Search for Python files here</button>
+    <div class="main-container">
+        <aside class="sidebar hidden" id="sidebar">
+            <div class="sidebar-header">
+                <h3>History</h3>
+                <button class="icon-btn" onclick="toggleSidebar()">✕</button>
+            </div>
+            <div class="sidebar-content" id="history-list">
+                <div class="no-history">No conversation history yet</div>
+            </div>
+        </aside>
+        
+        <div class="chat-wrapper">
+            <div class="chat-container" id="chat-container">
+                <div class="empty-state" id="empty-state">
+                    <h2>👋 Hey there!</h2>
+                    <p>I'm your local AI assistant. Ask me anything or give me a task.</p>
+                    <div class="examples">
+                        <button class="example-btn" onclick="useExample(this)">List files in home directory</button>
+                        <button class="example-btn" onclick="useExample(this)">What's the current date?</button>
+                        <button class="example-btn" onclick="useExample(this)">Search for Python files</button>
+                        <button class="example-btn" onclick="useExample(this)">Check disk usage</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <div class="input-container">
+                    <div class="autocomplete" id="autocomplete"></div>
+                    <input 
+                        type="text" 
+                        id="message-input" 
+                        placeholder="Ask anything or type / for commands..." 
+                        autocomplete="off"
+                    >
+                    <button id="send-btn" onclick="sendMessage()">Send</button>
+                </div>
+                <div class="keyboard-hints">
+                    <span><kbd>Enter</kbd> Send</span>
+                    <span><kbd>Ctrl+K</kbd> Clear</span>
+                    <span><kbd>Ctrl+H</kbd> History</span>
+                    <span><kbd>/help</kbd> Commands</span>
+                </div>
             </div>
         </div>
     </div>
     
-    <div class="input-area">
-        <div class="input-container">
-            <input 
-                type="text" 
-                id="message-input" 
-                placeholder="Ask me anything..." 
-                autocomplete="off"
-            >
-            <button id="send-btn" onclick="sendMessage()">Send</button>
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay hidden" id="confirm-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="icon">⚠️</span>
+                <h3>Confirmation Required</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message">This action requires your approval.</p>
+                <div class="modal-command" id="confirm-command"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn cancel" onclick="handleConfirm(false)">Cancel</button>
+                <button class="modal-btn confirm" onclick="handleConfirm(true)">Proceed</button>
+            </div>
         </div>
     </div>
 
     <script>
         // State
         let ws = null;
-        let streamWs = null;
         let sessionId = localStorage.getItem('localcowork_session') || null;
         let isProcessing = false;
         let currentTaskId = null;
-        let useStreaming = true; // Enable streaming by default
-        let currentStreamingMessage = null;
+        let currentModel = localStorage.getItem('localcowork_model') || 'mistral';
+        let pendingConfirmId = null;
+        let startTime = null;
+        let stepResults = [];
+        
+        // Slash commands
+        const commands = [
+            { cmd: '/clear', desc: 'Clear chat history' },
+            { cmd: '/status', desc: 'Show connection status' },
+            { cmd: '/history', desc: 'Toggle history sidebar' },
+            { cmd: '/model', desc: 'Change model (e.g., /model llama3.2)' },
+            { cmd: '/help', desc: 'Show available commands' },
+        ];
         
         // DOM elements
         const chatContainer = document.getElementById('chat-container');
@@ -406,31 +705,27 @@
         const messageInput = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
         const statusBadge = document.getElementById('status-badge');
+        const autocomplete = document.getElementById('autocomplete');
+        const modelSelect = document.getElementById('model-select');
+        const sidebar = document.getElementById('sidebar');
         
-        // WebSocket for notifications
+        // Initialize model selector
+        modelSelect.value = currentModel;
+        
+        // WebSocket connection
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
             
             updateStatus('connecting');
             
-            ws.onopen = () => {
-                updateStatus('connected');
-            };
-            
+            ws.onopen = () => updateStatus('connected');
             ws.onclose = () => {
                 updateStatus('disconnected');
                 setTimeout(connectWebSocket, 3000);
             };
-            
-            ws.onerror = () => {
-                updateStatus('disconnected');
-            };
-            
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                handleWsMessage(msg);
-            };
+            ws.onerror = () => updateStatus('disconnected');
+            ws.onmessage = (e) => handleWsMessage(JSON.parse(e.data));
         }
         
         function updateStatus(status) {
@@ -440,190 +735,135 @@
         
         function handleWsMessage(msg) {
             console.log('WS:', msg);
-            
-            if (msg.type === 'agent_progress' && msg.task_id === currentTaskId) {
+            if (msg.type === 'progress' && msg.task_id === currentTaskId) {
                 updateProgress(msg);
-            } else if (msg.type === 'agent_complete' && msg.task_id === currentTaskId) {
-                finishProcessing(msg);
+            } else if (msg.type === 'complete' && msg.task_id === currentTaskId) {
+                finishTask(msg);
+            } else if (msg.type === 'confirm_request') {
+                showConfirmModal(msg);
             }
         }
         
-        // Streaming message handling
-        async function sendMessageStreaming() {
-            const text = messageInput.value.trim();
-            if (!text || isProcessing) return;
-            
-            // Hide empty state
-            if (emptyState) emptyState.style.display = 'none';
-            
-            // Add user message
-            addMessage(text, 'user');
-            messageInput.value = '';
-            
-            isProcessing = true;
-            sendBtn.disabled = true;
-            
-            // Create task ID for this request
-            const taskId = 'task_' + Date.now();
-            currentTaskId = taskId;
-            
-            // Show thinking indicator
-            const thinkingEl = showThinking();
-            
-            // Create streaming message element
-            currentStreamingMessage = document.createElement('div');
-            currentStreamingMessage.className = 'message assistant streaming';
-            currentStreamingMessage.style.display = 'none';
-            chatContainer.appendChild(currentStreamingMessage);
-            
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            streamWs = new WebSocket(`${protocol}//${window.location.host}/ws/stream/${taskId}`);
-            
-            streamWs.onopen = () => {
-                streamWs.send(JSON.stringify({
-                    request: text,
-                    session_id: sessionId,
-                }));
-            };
-            
-            streamWs.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                handleStreamMessage(msg, thinkingEl);
-            };
-            
-            streamWs.onerror = (err) => {
-                console.error('Stream error:', err);
-                thinkingEl.remove();
-                if (currentStreamingMessage && !currentStreamingMessage.textContent) {
-                    currentStreamingMessage.remove();
-                }
-                addMessage('Connection error. Please try again.', 'error');
-                finishStreaming();
-            };
-            
-            streamWs.onclose = () => {
-                finishStreaming();
-            };
-        }
-        
-        function handleStreamMessage(msg, thinkingEl) {
-            console.log('Stream:', msg);
-            
-            switch (msg.type) {
-                case 'stream_start':
-                    if (msg.data?.stream_type === 'response') {
-                        // Hide thinking, show streaming message
-                        thinkingEl.remove();
-                        currentStreamingMessage.style.display = 'block';
-                        currentStreamingMessage.classList.add('streaming-active');
-                    }
-                    break;
-                    
-                case 'stream_token':
-                    if (currentStreamingMessage) {
-                        currentStreamingMessage.textContent += msg.data?.token || msg.token || '';
-                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                    }
-                    break;
-                    
-                case 'stream_end':
-                    if (currentStreamingMessage) {
-                        currentStreamingMessage.classList.remove('streaming-active');
-                        if (msg.data?.full_response) {
-                            currentStreamingMessage.textContent = msg.data.full_response;
-                        }
-                    }
-                    break;
-                    
-                case 'stream_thought':
-                    // Update thinking indicator
-                    const thinkingText = document.querySelector('.thinking-text');
-                    if (thinkingText && msg.data?.thought) {
-                        const preview = msg.data.thought.length > 60 
-                            ? msg.data.thought.substring(0, 60) + '...' 
-                            : msg.data.thought;
-                        thinkingText.textContent = `Step ${msg.data.iteration}: ${preview}`;
-                    }
-                    break;
-                    
-                case 'progress':
-                    const progressText = document.querySelector('.thinking-text');
-                    if (progressText && msg.action) {
-                        progressText.textContent = `Running: ${msg.action}`;
-                    }
-                    break;
-                    
-                case 'confirm_request':
-                    handleConfirmRequest(msg);
-                    break;
-                    
-                case 'complete':
-                    thinkingEl.remove();
-                    sessionId = msg.session_id;
-                    localStorage.setItem('localcowork_session', sessionId);
-                    
-                    // If we haven't shown the streaming message yet, show the response
-                    if (currentStreamingMessage && !currentStreamingMessage.textContent && msg.response) {
-                        currentStreamingMessage.style.display = 'block';
-                        currentStreamingMessage.textContent = msg.response;
-                    } else if (!currentStreamingMessage?.textContent && msg.response) {
-                        addMessage(msg.response, 'assistant');
-                    }
-                    
-                    if (msg.status === 'failed') {
-                        addMessage('Task failed. Please try again.', 'error');
-                    }
-                    break;
-                    
-                case 'error':
-                case 'task_error':
-                    thinkingEl.remove();
-                    const errorMsg = msg.data?.message || msg.data?.error || 'An error occurred';
-                    addMessage('Error: ' + errorMsg, 'error');
-                    break;
+        // Slash command handling
+        messageInput.addEventListener('input', (e) => {
+            const value = e.target.value;
+            if (value.startsWith('/')) {
+                showAutocomplete(value);
+            } else {
+                hideAutocomplete();
             }
-        }
+        });
         
-        function handleConfirmRequest(msg) {
-            // Show confirmation dialog
-            const confirmed = confirm(`⚠️ Confirmation Required\n\n${msg.message || msg.reason}\n\nDo you want to proceed?`);
-            
-            if (streamWs && streamWs.readyState === WebSocket.OPEN) {
-                streamWs.send(JSON.stringify({
-                    type: 'confirm_response',
-                    confirm_id: msg.confirm_id,
-                    confirmed: confirmed,
-                }));
+        function showAutocomplete(input) {
+            const filtered = commands.filter(c => c.cmd.startsWith(input.toLowerCase()));
+            if (filtered.length === 0) {
+                hideAutocomplete();
+                return;
             }
+            
+            autocomplete.innerHTML = filtered.map((c, i) => `
+                <div class="autocomplete-item ${i === 0 ? 'selected' : ''}" onclick="selectCommand('${c.cmd}')">
+                    <span class="cmd">${c.cmd}</span>
+                    <span class="desc">${c.desc}</span>
+                </div>
+            `).join('');
+            autocomplete.classList.add('show');
         }
         
-        function finishStreaming() {
-            isProcessing = false;
-            sendBtn.disabled = false;
+        function hideAutocomplete() {
+            autocomplete.classList.remove('show');
+        }
+        
+        function selectCommand(cmd) {
+            messageInput.value = cmd + ' ';
+            hideAutocomplete();
             messageInput.focus();
-            currentStreamingMessage = null;
-            streamWs = null;
         }
         
-        // Non-streaming fallback
-        async function sendMessageFetch() {
+        function executeCommand(input) {
+            const parts = input.trim().split(' ');
+            const cmd = parts[0].toLowerCase();
+            const args = parts.slice(1).join(' ');
+            
+            switch (cmd) {
+                case '/clear':
+                    clearChat();
+                    return true;
+                case '/status':
+                    showStatus();
+                    return true;
+                case '/history':
+                    toggleSidebar();
+                    return true;
+                case '/model':
+                    if (args) {
+                        changeModel(args);
+                        addMessage(`Model changed to: ${args}`, 'system');
+                    } else {
+                        addMessage(`Current model: ${currentModel}. Usage: /model <name>`, 'system');
+                    }
+                    return true;
+                case '/help':
+                    showHelp();
+                    return true;
+            }
+            return false;
+        }
+        
+        function showHelp() {
+            const helpText = commands.map(c => `${c.cmd} - ${c.desc}`).join('\n');
+            addMessage(`Available commands:\n${helpText}`, 'system');
+        }
+        
+        function showStatus() {
+            const status = `Status Information:
+• Connection: ${statusBadge.textContent}
+• Model: ${currentModel}
+• Session: ${sessionId ? sessionId.slice(0, 8) + '...' : 'None'}
+• Version: v0.3.0`;
+            addMessage(status, 'system');
+        }
+        
+        function changeModel(model) {
+            currentModel = model;
+            modelSelect.value = model;
+            localStorage.setItem('localcowork_model', model);
+        }
+        
+        function toggleSidebar() {
+            sidebar.classList.toggle('hidden');
+            document.getElementById('sidebar-toggle').classList.toggle('active');
+        }
+        
+        // Main send function
+        async function sendMessage() {
             const text = messageInput.value.trim();
             if (!text || isProcessing) return;
             
-            // Hide empty state
+            // Check for slash commands
+            if (text.startsWith('/')) {
+                if (executeCommand(text)) {
+                    messageInput.value = '';
+                    hideAutocomplete();
+                    return;
+                }
+            }
+            
+            hideAutocomplete();
             if (emptyState) emptyState.style.display = 'none';
             
-            // Add user message
             addMessage(text, 'user');
             messageInput.value = '';
             
-            // Show thinking
             isProcessing = true;
             sendBtn.disabled = true;
-            const thinkingEl = showThinking();
+            startTime = Date.now();
+            stepResults = [];
+            
+            const progressEl = showProgress();
             
             try {
-                const response = await fetch('/agent/run', {
+                const response = await fetch('/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -647,19 +887,23 @@
                     ws.send(JSON.stringify({ type: 'subscribe', task_id: data.task_id }));
                 }
                 
-                // Remove thinking, show response
-                thinkingEl.remove();
+                progressEl.remove();
+                const duration = ((Date.now() - startTime) / 1000).toFixed(1);
                 
                 if (data.response) {
-                    addMessage(data.response, 'assistant', data.context);
+                    addMessage(data.response, 'assistant', { 
+                        duration, 
+                        steps: data.steps 
+                    });
                 } else if (data.status === 'failed') {
                     addMessage('Sorry, I encountered an error.', 'error');
-                } else {
-                    addMessage('Task completed.', 'assistant', data.context);
                 }
                 
+                // Save to history
+                saveToHistory(text, data.response);
+                
             } catch (err) {
-                thinkingEl.remove();
+                progressEl.remove();
                 addMessage('Error: ' + err.message, 'error');
             } finally {
                 isProcessing = false;
@@ -668,67 +912,126 @@
             }
         }
         
-        // Main send function - chooses streaming or fetch
-        function sendMessage() {
-            if (useStreaming) {
-                sendMessageStreaming();
-            } else {
-                sendMessageFetch();
-            }
+        function showProgress() {
+            const el = document.createElement('div');
+            el.className = 'progress-container';
+            el.id = 'progress-indicator';
+            el.innerHTML = `
+                <div class="progress-spinner"></div>
+                <div class="progress-content">
+                    <div class="progress-action">Thinking...</div>
+                    <div class="progress-steps"></div>
+                </div>
+            `;
+            chatContainer.appendChild(el);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return el;
         }
         
-        function addMessage(text, type, context = null) {
+        function updateProgress(msg) {
+            const el = document.getElementById('progress-indicator');
+            if (!el) return;
+            
+            const actionEl = el.querySelector('.progress-action');
+            const stepsEl = el.querySelector('.progress-steps');
+            
+            // Update action text
+            let actionText = 'Thinking...';
+            let actionClass = '';
+            
+            if (msg.action) {
+                if (msg.action.startsWith('shell:')) {
+                    actionText = '$ ' + msg.action.slice(6).trim().slice(0, 50);
+                    actionClass = 'shell';
+                } else if (msg.action.startsWith('python:')) {
+                    actionText = 'Running Python...';
+                    actionClass = 'python';
+                } else if (msg.action.startsWith('web_search:')) {
+                    actionText = 'Searching the web...';
+                    actionClass = 'web';
+                } else if (msg.action.startsWith('fetch_webpage:')) {
+                    actionText = 'Fetching webpage...';
+                    actionClass = 'web';
+                }
+            }
+            
+            actionEl.textContent = actionText;
+            actionEl.className = 'progress-action ' + actionClass;
+            
+            // Update step dots
+            if (msg.status === 'success' || msg.status === 'error') {
+                stepResults.push(msg.status);
+            }
+            
+            let stepsHtml = stepResults.slice(-8).map(s => 
+                `<div class="step-dot ${s}"></div>`
+            ).join('');
+            
+            if (stepResults.length > 0) {
+                stepsHtml += `<span class="progress-iteration">Step ${msg.iteration || stepResults.length}</span>`;
+            }
+            
+            stepsEl.innerHTML = stepsHtml;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        function finishTask(msg) {
+            const el = document.getElementById('progress-indicator');
+            if (el) el.remove();
+            
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            
+            if (msg.response) {
+                addMessage(msg.response, 'assistant', { 
+                    duration, 
+                    steps: stepResults.length 
+                });
+            }
+            
+            isProcessing = false;
+            sendBtn.disabled = false;
+        }
+        
+        function addMessage(text, type, meta = null) {
             const msg = document.createElement('div');
             msg.className = 'message ' + type;
             msg.textContent = text;
             
-            // Add data output if context has data
-            if (context && Object.keys(context).length > 0) {
-                const data = document.createElement('div');
-                data.className = 'data-output';
-                
-                // Format context data
-                let output = '';
-                for (const [key, value] of Object.entries(context)) {
-                    if (value && value.length > 0) {
-                        output += value + '\n';
-                    }
+            // Add metadata (duration, steps)
+            if (meta && type === 'assistant') {
+                const metaEl = document.createElement('div');
+                metaEl.className = 'message-meta';
+                if (meta.duration) {
+                    metaEl.innerHTML += `<span>✓ ${meta.duration}s</span>`;
                 }
-                if (output) {
-                    data.textContent = output.trim();
-                    msg.appendChild(data);
+                if (meta.steps) {
+                    metaEl.innerHTML += `<span>• ${meta.steps} steps</span>`;
                 }
+                msg.appendChild(metaEl);
             }
             
             chatContainer.appendChild(msg);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
         
-        function showThinking() {
-            const thinking = document.createElement('div');
-            thinking.className = 'thinking';
-            thinking.innerHTML = `
-                <div class="thinking-dots">
-                    <span></span><span></span><span></span>
-                </div>
-                <span class="thinking-text">Thinking...</span>
-            `;
-            chatContainer.appendChild(thinking);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-            return thinking;
+        function showConfirmModal(msg) {
+            pendingConfirmId = msg.confirm_id;
+            document.getElementById('confirm-message').textContent = msg.message || msg.reason || 'This action requires confirmation.';
+            document.getElementById('confirm-command').textContent = msg.command || '';
+            document.getElementById('confirm-modal').classList.remove('hidden');
         }
         
-        function updateProgress(msg) {
-            // Update thinking text with progress
-            const thinking = document.querySelector('.thinking-text');
-            if (thinking && msg.thought) {
-                const preview = msg.thought.length > 50 ? msg.thought.substring(0, 50) + '...' : msg.thought;
-                thinking.textContent = preview;
+        function handleConfirm(confirmed) {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            
+            if (ws && ws.readyState === WebSocket.OPEN && pendingConfirmId) {
+                ws.send(JSON.stringify({
+                    type: 'confirm_response',
+                    confirm_id: pendingConfirmId,
+                    confirmed: confirmed,
+                }));
             }
-        }
-        
-        function finishProcessing(msg) {
-            // Response already handled by fetch response
+            pendingConfirmId = null;
         }
         
         function clearChat() {
@@ -738,11 +1041,12 @@
             newEmpty.id = 'empty-state';
             newEmpty.innerHTML = `
                 <h2>👋 Hey there!</h2>
-                <p>I'm your local AI assistant. Ask me to do anything.</p>
+                <p>I'm your local AI assistant. Ask me anything or give me a task.</p>
                 <div class="examples">
-                    <button class="example-btn" onclick="useExample(this)">List files in my home directory</button>
-                    <button class="example-btn" onclick="useExample(this)">What's the current date and time?</button>
-                    <button class="example-btn" onclick="useExample(this)">Search for Python files here</button>
+                    <button class="example-btn" onclick="useExample(this)">List files in home directory</button>
+                    <button class="example-btn" onclick="useExample(this)">What's the current date?</button>
+                    <button class="example-btn" onclick="useExample(this)">Search for Python files</button>
+                    <button class="example-btn" onclick="useExample(this)">Check disk usage</button>
                 </div>
             `;
             chatContainer.appendChild(newEmpty);
@@ -755,15 +1059,76 @@
             messageInput.focus();
         }
         
-        // Event listeners
-        messageInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !isProcessing) {
+        // History management
+        function saveToHistory(request, response) {
+            const history = JSON.parse(localStorage.getItem('localcowork_history') || '[]');
+            history.unshift({
+                id: Date.now(),
+                request: request.slice(0, 100),
+                response: response?.slice(0, 100),
+                timestamp: new Date().toISOString(),
+            });
+            localStorage.setItem('localcowork_history', JSON.stringify(history.slice(0, 20)));
+            renderHistory();
+        }
+        
+        function renderHistory() {
+            const history = JSON.parse(localStorage.getItem('localcowork_history') || '[]');
+            const container = document.getElementById('history-list');
+            
+            if (history.length === 0) {
+                container.innerHTML = '<div class="no-history">No conversation history yet</div>';
+                return;
+            }
+            
+            container.innerHTML = history.map(h => `
+                <div class="history-item" onclick="loadHistoryItem('${h.request.replace(/'/g, "\\'")}')">
+                    <div class="history-item-title">${h.request}</div>
+                    <div class="history-item-meta">${new Date(h.timestamp).toLocaleDateString()}</div>
+                </div>
+            `).join('');
+        }
+        
+        function loadHistoryItem(request) {
+            messageInput.value = request;
+            messageInput.focus();
+            if (window.innerWidth < 768) toggleSidebar();
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                clearChat();
+            }
+            if (e.ctrlKey && e.key === 'h') {
+                e.preventDefault();
+                toggleSidebar();
+            }
+            if (e.ctrlKey && e.key === 'i') {
+                e.preventDefault();
+                showStatus();
+            }
+            if (e.key === 'Escape') {
+                hideAutocomplete();
+                document.getElementById('confirm-modal').classList.add('hidden');
+            }
+            if (e.key === 'Enter' && document.activeElement === messageInput && !e.shiftKey && !isProcessing) {
+                e.preventDefault();
                 sendMessage();
+            }
+            if (e.key === 'Tab' && autocomplete.classList.contains('show')) {
+                e.preventDefault();
+                const selected = autocomplete.querySelector('.autocomplete-item.selected');
+                if (selected) {
+                    selectCommand(selected.querySelector('.cmd').textContent);
+                }
             }
         });
         
         // Initialize
         connectWebSocket();
+        renderHistory();
         messageInput.focus();
     </script>
 </body>
