@@ -15,7 +15,7 @@ class TestSettings:
 
         assert settings.ollama_url == "http://localhost:11434/api/generate"
         assert settings.ollama_model == "mistral"
-        assert settings.sandbox_timeout == 30
+        assert settings.sandbox_timeout == 300  # 5 minutes for Python scripts
         assert settings.session_timeout == 3600
 
     def test_sandbox_defaults(self):
