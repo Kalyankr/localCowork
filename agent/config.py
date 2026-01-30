@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     max_tokens: int = 2048
 
     # Sandbox Settings
-    sandbox_timeout: int = 30
+    sandbox_timeout: int = 300  # 5 minutes for Python scripts
     sandbox_memory_limit: str = "256m"
     sandbox_cpu_limit: str = "1"
     sandbox_pids_limit: int = 50
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     context_limit_medium: int = 3000
     context_limit_long: int = 5000
     output_limit: int = 50000
-    shell_timeout: int = 300  # Shell command timeout
+    shell_timeout: int = 600  # 10 minutes for shell commands
 
     # Execution Settings
     max_code_retries: int = 2

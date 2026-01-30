@@ -38,6 +38,7 @@ from agent.safety import (
     get_affected_paths,
 )
 from agent.sandbox.sandbox_runner import Sandbox
+from agent.web import fetch_webpage, web_search
 
 logger = logging.getLogger(__name__)
 
@@ -497,7 +498,7 @@ class ReActAgent:
                         command,
                         shell=True,
                         capture_output=True,
-                        timeout=120,  # 2 minutes for longer operations
+                        timeout=settings.shell_timeout,
                         cwd=cwd,
                         env={**os.environ, "HOME": os.path.expanduser("~")},
                     )
@@ -539,11 +540,48 @@ class ReActAgent:
                         error=_sanitize_error(str(e), "shell command"),
                     )
 
-            # Unknown tool - only shell and python are supported
+            # Handle web search
+            if action.tool == "web_search":
+                query = action.args.get("query", "")
+                max_results = action.args.get("max_results", 5)
+                result = web_search(query, max_results=max_results)
+
+                if result.get("error"):
+                    return StepResult(
+                        step_id="web_search",
+                        status="error",
+                        error=result["error"],
+                    )
+
+                return StepResult(
+                    step_id="web_search",
+                    status="success",
+                    output=result,
+                )
+
+            # Handle webpage fetching
+            if action.tool == "fetch_webpage":
+                url = action.args.get("url", "")
+                result = fetch_webpage(url)
+
+                if result.get("error"):
+                    return StepResult(
+                        step_id="fetch_webpage",
+                        status="error",
+                        error=result["error"],
+                    )
+
+                return StepResult(
+                    step_id="fetch_webpage",
+                    status="success",
+                    output=result,
+                )
+
+            # Unknown tool
             return StepResult(
                 step_id=f"action_{action.tool}",
                 status="error",
-                error=f"Unknown tool: {action.tool}. Use 'shell' or 'python'.",
+                error=f"Unknown tool: {action.tool}. Use 'shell', 'python', 'web_search', or 'fetch_webpage'.",
             )
 
         except Exception as e:

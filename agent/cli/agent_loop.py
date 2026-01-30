@@ -80,6 +80,8 @@ def run_agent(model_override: str = None):
 def _interactive_loop(model: str):
     """Interactive agent loop with conversation memory."""
     console.clear()
+    # Add top margin so content isn't at very top of terminal
+    print_padding(2)
     _show_welcome(model)
 
     # Conversation history for context
@@ -102,6 +104,7 @@ def _interactive_loop(model: str):
 
             if user_input.lower() == "/clear":
                 console.clear()
+                print_padding(2)  # Top margin
                 _show_welcome(model)
                 conversation_history.clear()  # Also clear history
                 continue
@@ -375,6 +378,7 @@ def _show_response(text: str, model: str):
     """Display agent response with clean formatting."""
     width = _get_width()
 
+    console.print()
     console.print("  [bold cyan]◆[/bold cyan] [bold white]LocalCowork[/bold white]")
 
     # Clean and wrap the text properly
@@ -396,6 +400,7 @@ def _show_response(text: str, model: str):
 
     # Add trailing padding for visual separation
     console.print()
+    console.print()
 
 
 def _show_welcome(model: str):
@@ -415,10 +420,11 @@ def _show_welcome(model: str):
 
 
 def _get_input() -> str:
-    """Get user input with blue rectangle box.
+    """Get user input with complete blue rectangle box.
 
-    Includes top padding for visual separation and bottom margin
-    to keep content away from terminal edge.
+    Shows the full box (top, sides, bottom) before typing,
+    with cursor positioned inside. Uses ANSI escape codes
+    to move cursor back up into the box.
     """
     width = _get_width()
     inner_width = width - 8
@@ -426,16 +432,36 @@ def _get_input() -> str:
         # Top padding for separation from previous content
         console.print()
         console.print()
-        # Top of box
+        console.print()
+
+        # Print complete box first (top, middle with prompt, bottom)
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
-        # Input line with left border, user types, then we close
-        user_input = console.input("  [blue]│[/blue] [dim]>[/dim] ")
-        # Bottom of box
+        console.print(
+            f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
+        )
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
+
+        # Move cursor up 2 lines and right to input position
+        # \033[2A = move up 2 lines, \033[7C = move right 7 columns (past "  │ > ")
+        sys.stdout.write("\033[2A\033[7C")
+        sys.stdout.flush()
+
+        # Get input (user types inside the box)
+        user_input = input()
+
+        # Move cursor down to below the box (it's on the middle line after Enter)
+        # We need to go down 2 lines to be after the bottom border
+        sys.stdout.write("\033[2B\r")
+        sys.stdout.flush()
+
         # Bottom margin - breathing room from terminal edge
+        console.print()
         console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
+        # Clean up cursor position on interrupt
+        sys.stdout.write("\033[2B\r")
+        sys.stdout.flush()
         console.print()
         raise
 
