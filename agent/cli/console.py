@@ -83,7 +83,11 @@ def print_info(message: str):
 
 
 def print_padding(lines: int = 2):
-    """Add vertical padding at bottom of terminal."""
+    """Add vertical padding and ensure content isn't at terminal bottom.
+
+    This prints empty lines which forces the terminal to scroll if needed,
+    keeping content away from the bottom edge.
+    """
     for _ in range(lines):
         console.print()
 

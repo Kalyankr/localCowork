@@ -81,7 +81,7 @@ def _interactive_loop(model: str):
     """Interactive agent loop with conversation memory."""
     console.clear()
     # Add top margin so content isn't at very top of terminal
-    print_padding(2)
+    print_padding(1)
     _show_welcome(model)
 
     # Conversation history for context
@@ -104,7 +104,7 @@ def _interactive_loop(model: str):
 
             if user_input.lower() == "/clear":
                 console.clear()
-                print_padding(2)  # Top margin
+                print_padding(1)  # Top margin
                 _show_welcome(model)
                 conversation_history.clear()  # Also clear history
                 continue
@@ -169,6 +169,7 @@ def _process_input_agentic(
         "action": "",
         "status": "thinking",
         "steps": [],  # List of (iteration, action, status, thought_preview)
+        "last_error": None,  # Track last error for retry message
     }
 
     # Nice spinner animation frames
@@ -189,7 +190,12 @@ def _process_input_agentic(
         line = Text()
         line.append("  ")
 
-        if status == "thinking":
+        if status == "retrying":
+            line.append(f"{spinner} ", style="bold yellow")
+            line.append(
+                "Hmm, that didn't work. Let me try another approach...", style="yellow"
+            )
+        elif status == "thinking":
             line.append(f"{spinner} ", style="bold yellow")
             line.append("Thinking...", style="yellow")
         elif status == "executing":
@@ -203,6 +209,10 @@ def _process_input_agentic(
                     line.append(f"$ {cmd}", style="cyan")
                 elif action.startswith("python:"):
                     line.append("Running Python...", style="cyan")
+                elif action.startswith("web_search:"):
+                    line.append("Searching the web...", style="cyan")
+                elif action.startswith("fetch_webpage:"):
+                    line.append("Fetching webpage...", style="cyan")
                 else:
                     line.append("Executing...", style="cyan")
             else:
@@ -231,9 +241,16 @@ def _process_input_agentic(
 
         # Map status to display status
         if status in ("thinking", "planning"):
-            current_state["status"] = "thinking"
+            # Check if last step was an error - show retry message
+            if current_state["last_error"]:
+                current_state["status"] = "retrying"
+                current_state["last_error"] = None  # Clear after showing
+            else:
+                current_state["status"] = "thinking"
+        elif status == "error":
+            current_state["last_error"] = True
+            current_state["status"] = "executing"  # Still show as executing
         else:
-            # Any other status (acting, running, executing, success, error) shows as executing
             current_state["status"] = "executing"
 
         if status in ("success", "error") and action:
@@ -398,9 +415,8 @@ def _show_response(text: str, model: str):
         else:
             console.print(f"    {line}")
 
-    # Add trailing padding for visual separation
-    console.print()
-    console.print()
+    # Add trailing padding for visual separation and to keep away from terminal bottom
+    print_padding(1)
 
 
 def _show_welcome(model: str):
@@ -416,54 +432,47 @@ def _show_welcome(model: str):
     )
     console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
     # Bottom margin to keep content away from terminal edge
-    print_padding(2)
+    print_padding(1)
 
 
 def _get_input() -> str:
     """Get user input with complete blue rectangle box.
 
     Shows the full box (top, sides, bottom) before typing,
-    with cursor positioned inside. Uses ANSI escape codes
-    to move cursor back up into the box.
+    with cursor positioned inside. Ensures breathing room
+    below the input box so it's not at terminal edge.
     """
     width = _get_width()
     inner_width = width - 8
     try:
-        # Scroll buffer: print empty lines to ensure input box isn't at terminal bottom
-        # These lines push content up, creating breathing room below
-        console.print()
-        console.print()
-        console.print()
-        # Now move cursor back up to where we want the input box
-        sys.stdout.write("\033[2A")
-        sys.stdout.flush()
-
-        # Print complete box first (top, middle with prompt, bottom)
+        # Print complete box (top, middle with prompt, bottom)
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
         console.print(
             f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
         )
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
 
-        # Move cursor up 2 lines and right to input position
-        # \033[2A = move up 2 lines, \033[7C = move right 7 columns (past "  │ > ")
-        sys.stdout.write("\033[2A\033[7C")
+        # Print empty lines BELOW the box to create scroll buffer
+        # This ensures the box isn't at terminal bottom
+        console.print()
+        console.print()
+
+        # Move cursor up 4 lines (2 empty + bottom border + to middle line)
+        # Then right to input position (past "  │ > ")
+        sys.stdout.write("\033[4A\033[7C")
         sys.stdout.flush()
 
         # Get input (user types inside the box)
         user_input = input()
 
-        # Move cursor down to below the box (it's on the middle line after Enter)
-        # We need to go down 2 lines to be after the bottom border
-        sys.stdout.write("\033[2B\r")
+        # Move cursor down to after the empty lines (middle + bottom + 2 empty = 4 lines)
+        sys.stdout.write("\033[4B\r")
         sys.stdout.flush()
 
-        # Bottom margin
-        console.print()
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
         # Clean up cursor position on interrupt
-        sys.stdout.write("\033[2B\r")
+        sys.stdout.write("\033[4B\r")
         sys.stdout.flush()
         console.print()
         raise
@@ -478,7 +487,7 @@ def _show_help():
     console.print(
         "  [bold]Commands:[/bold] [cyan]/clear[/cyan] [cyan]/status[/cyan] [cyan]/history[/cyan] [cyan]/model X[/cyan] [cyan]/help[/cyan] [cyan]/quit[/cyan]"
     )
-    console.print()
+    print_padding(1)
 
 
 def _show_status(model: str):
@@ -495,7 +504,7 @@ def _show_status(model: str):
         f"    [dim]Max Steps:[/dim]   [white]{settings.max_agent_iterations}[/white]"
     )
     console.print(f"    [dim]Ollama URL:[/dim]  [white]{settings.ollama_url}[/white]")
-    console.print()
+    print_padding(1)
 
 
 def _show_history(conversation_history: list):
@@ -528,11 +537,11 @@ def _show_history(conversation_history: list):
 
     console.print()
     console.print(f"    [dim]{len(conversation_history)} messages in history[/dim]")
-    console.print()
+    print_padding(1)
 
 
 def _show_goodbye():
     """Show a clean goodbye message."""
     console.print()
     console.print("  [dim]Session ended. Goodbye![/dim]")
-    console.print()
+    print_padding(1)
