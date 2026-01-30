@@ -3,40 +3,42 @@
 All task execution uses the ReAct agent (shell + python).
 """
 
+import asyncio
+import logging
+import secrets
+import time
+import uuid
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
 from fastapi import (
+    Depends,
     FastAPI,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
-    Request,
-    Depends,
 )
-from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
+from pydantic import ValidationError
+
+from agent.config import settings
+from agent.llm.client import LLMError
+from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.models import (
-    TaskRequest,
-    TaskSummary,
-    TaskDetail,
     ConversationMessage,
+    TaskDetail,
+    TaskRequest,
     TaskState,
+    TaskSummary,
     WebSocketMessage,
     WSMessageType,
 )
-from pydantic import ValidationError
-from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.task_manager import TaskState as TMState
-from agent.config import settings
 from agent.version import __version__
-from agent.llm.client import LLMError
-import asyncio
-import uuid
-import logging
-import secrets
-from pathlib import Path
-from typing import Any, Dict, List, Set, Optional
-from collections import defaultdict
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +116,7 @@ class RateLimiter:
     def __init__(self, max_requests: int = 60, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self.requests: Dict[str, List[float]] = defaultdict(list)
+        self.requests: dict[str, list[float]] = defaultdict(list)
 
     def is_allowed(self, client_id: str) -> bool:
         """Check if request is allowed for this client."""
@@ -167,8 +169,8 @@ task_manager = get_task_manager()
 STATIC_DIR = Path(__file__).parent / "static"
 
 # Session storage
-conversation_history: Dict[str, List[ConversationMessage]] = defaultdict(list)
-conversation_timestamps: Dict[str, float] = {}
+conversation_history: dict[str, list[ConversationMessage]] = defaultdict(list)
+conversation_timestamps: dict[str, float] = {}
 
 SESSION_TIMEOUT = settings.session_timeout
 MAX_HISTORY = settings.max_history_messages
@@ -181,8 +183,8 @@ MAX_HISTORY = settings.max_history_messages
 
 class ConnectionManager:
     def __init__(self):
-        self.connections: Set[WebSocket] = set()
-        self.task_subs: Dict[str, Set[WebSocket]] = defaultdict(set)
+        self.connections: set[WebSocket] = set()
+        self.task_subs: dict[str, set[WebSocket]] = defaultdict(set)
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -252,7 +254,7 @@ def cleanup_sessions():
         conversation_timestamps.pop(s, None)
 
 
-def get_history(session_id: str) -> List[ConversationMessage]:
+def get_history(session_id: str) -> list[ConversationMessage]:
     cleanup_sessions()
     return conversation_history.get(session_id, [])
 
@@ -371,8 +373,8 @@ async def run_task(
 
         # For server mode, confirmations are handled via WebSocket
         # pending_confirmations tracks confirmation requests per task
-        pending_confirmations: Dict[str, asyncio.Event] = {}
-        confirmation_results: Dict[str, bool] = {}
+        pending_confirmations: dict[str, asyncio.Event] = {}
+        confirmation_results: dict[str, bool] = {}
 
         async def on_confirm(command: str, reason: str, message: str) -> bool:
             """Request confirmation via WebSocket and wait for response."""
@@ -397,7 +399,7 @@ async def run_task(
             try:
                 await asyncio.wait_for(event.wait(), timeout=60.0)
                 return confirmation_results.get(confirm_id, False)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"Confirmation timeout for {confirm_id}")
                 return False  # Default to deny on timeout
             finally:
@@ -465,11 +467,11 @@ async def run_agent(
 
 @app.get("/tasks")
 async def list_tasks(
-    session_id: Optional[str] = None,
-    state: Optional[str] = None,
+    session_id: str | None = None,
+    state: str | None = None,
     limit: int = 50,
     _auth: bool = Depends(verify_api_key),
-) -> List[TaskSummary]:
+) -> list[TaskSummary]:
     """List tasks."""
     states = None
     if state:
