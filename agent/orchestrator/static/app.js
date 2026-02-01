@@ -402,6 +402,32 @@ function showConfirmModal(msg) {
 function handleConfirm(confirmed) {
     document.getElementById('confirm-modal').classList.add('hidden');
     
+    // Show user's decision clearly
+    const decisionMessage = confirmed 
+        ? '✓ Approved - Continuing with operation...'
+        : '✗ Denied - Operation cancelled';
+    const decisionClass = confirmed ? 'success' : 'error';
+    
+    // Add decision to current message steps
+    if (currentMessageEl) {
+        const stepsContainer = currentMessageEl.querySelector('.agent-steps');
+        if (stepsContainer) {
+            const decisionStep = document.createElement('div');
+            decisionStep.className = `step ${decisionClass}`;
+            decisionStep.innerHTML = `
+                <div class="step-header">
+                    <span class="step-icon">${confirmed ? '✓' : '✗'}</span>
+                    <span class="step-title">User Decision</span>
+                </div>
+                <div class="step-content">${confirmed ? 'Permission granted - proceeding' : 'Permission denied - operation cancelled'}</div>
+            `;
+            stepsContainer.appendChild(decisionStep);
+        }
+    }
+    
+    // Show toast notification
+    showToast(decisionMessage, decisionClass);
+    
     if (ws && ws.readyState === WebSocket.OPEN && pendingConfirmId) {
         ws.send(JSON.stringify({
             type: 'confirm_response',
@@ -410,6 +436,38 @@ function handleConfirm(confirmed) {
         }));
     }
     pendingConfirmId = null;
+}
+
+function showToast(message, type = 'info') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10000;';
+        document.body.appendChild(toastContainer);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.cssText = `
+        padding: 12px 20px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 500;
+        animation: slideIn 0.3s ease-out;
+        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Remove toast after 3 seconds
+    setTimeout(() => {
+        toast.style.animation = 'fadeOut 0.3s ease-out';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
 }
 
 // =============================================================================

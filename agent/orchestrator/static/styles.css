@@ -701,3 +701,53 @@ body {
     .header-center { display: none; }
     .keyboard-hints { display: none; }
 }
+
+/* =============================================================================
+   Toast Notifications
+   ============================================================================= */
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+}
+
+.toast {
+    padding: 12px 20px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.toast-success { background: var(--success); }
+.toast-error { background: var(--error); }
+.toast-info { background: var(--accent); }
+
+/* User decision step styles */
+.step.success .step-header { color: var(--success); }
+.step.error .step-header { color: var(--error); }
+.step.success .step-icon { color: var(--success); }
+.step.error .step-icon { color: var(--error); }

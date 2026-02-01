@@ -314,8 +314,27 @@ def _process_input_agentic(
         console.print(f"  [red]╰{'─' * (width - 8)}╯[/red]")
 
         try:
-            return Confirm.ask("  [bold]Proceed?[/bold]", default=False)
+            result = Confirm.ask("  [bold]Proceed?[/bold]", default=False)
+            # Show user's decision clearly
+            console.print()
+            if result:
+                console.print(
+                    "  [green]✓[/green] [bold green]Approved[/bold green] - "
+                    "Continuing with operation..."
+                )
+            else:
+                console.print(
+                    "  [red]✗[/red] [bold red]Denied[/bold red] - "
+                    "Operation cancelled by user"
+                )
+            console.print()
+            return result
         except (KeyboardInterrupt, EOFError):
+            console.print()
+            console.print(
+                "  [red]✗[/red] [bold red]Cancelled[/bold red] - Operation interrupted"
+            )
+            console.print()
             return False
 
     try:
