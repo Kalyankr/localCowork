@@ -102,7 +102,10 @@ def call_llm(prompt: str, force_json: bool = False) -> str:
         kwargs = {
             "model": s.ollama_model,
             "prompt": prompt,
-            "options": {"num_predict": s.max_tokens},
+            "options": {
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
         }
 
         # Use Ollama's native JSON mode if requested
@@ -146,7 +149,10 @@ def call_llm_chat(messages: list[dict[str, str]], model: str | None = None) -> s
         response = client.chat(
             model=active_model,
             messages=messages,
-            options={"num_predict": s.max_tokens},
+            options={
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
         )
 
         return response.message.content
@@ -414,7 +420,10 @@ async def call_llm_async(prompt: str, force_json: bool = False) -> str:
         kwargs = {
             "model": s.ollama_model,
             "prompt": prompt,
-            "options": {"num_predict": s.max_tokens},
+            "options": {
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
         }
 
         if force_json:
@@ -458,7 +467,10 @@ async def call_llm_chat_async(
         response = await client.chat(
             model=active_model,
             messages=messages,
-            options={"num_predict": s.max_tokens},
+            options={
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
         )
 
         return response.message.content
@@ -540,7 +552,10 @@ async def call_llm_stream_async(
         kwargs = {
             "model": s.ollama_model,
             "prompt": prompt,
-            "options": {"num_predict": s.max_tokens},
+            "options": {
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
             "stream": True,
         }
 
@@ -586,7 +601,10 @@ async def call_llm_chat_stream_async(
         async for chunk in await client.chat(
             model=active_model,
             messages=messages,
-            options={"num_predict": s.max_tokens},
+            options={
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
             stream=True,
         ):
             if chunk.message and chunk.message.content:
@@ -625,7 +643,10 @@ def call_llm_chat_stream(messages: list[dict[str, str]], model: str = None):
         stream = client.chat(
             model=active_model,
             messages=messages,
-            options={"num_predict": s.max_tokens},
+            options={
+                "num_predict": s.max_tokens,
+                "num_ctx": s.num_ctx,
+            },
             stream=True,
         )
 

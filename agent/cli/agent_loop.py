@@ -200,14 +200,23 @@ def _process_input_agentic(
                 f"Running {len(parallel_subtasks)} subtasks in parallel", style="blue"
             )
             line.append("\n")
+            # Calculate max subtask width (terminal width - indent - prefix - margin)
+            term_width = _get_width()
+            max_subtask_width = max(term_width - 15, 40)
             for i, subtask in enumerate(parallel_subtasks):
                 line.append("    ")
+                # Truncate with ellipsis if too long
+                display_subtask = (
+                    subtask
+                    if len(subtask) <= max_subtask_width
+                    else subtask[: max_subtask_width - 3] + "..."
+                )
                 if i < current_state["parallel_completed"]:
                     line.append("├─ ✓ ", style="green")
-                    line.append(subtask[:40], style="green")
+                    line.append(display_subtask, style="green")
                 else:
                     line.append(f"├─ {spinner} ", style="cyan")
-                    line.append(subtask[:40], style="cyan")
+                    line.append(display_subtask, style="cyan")
                 if i < len(parallel_subtasks) - 1:
                     line.append("\n")
             return line
@@ -389,27 +398,75 @@ def _process_input_agentic(
             live.update(build_agent_display())
 
         elapsed = time.time() - start_time
-        console.print(f"  [dim]✓ Done in {format_duration(elapsed)}[/dim]")
 
         # Get the response for history
         response_text = None
 
-        # Show final result
+        # Show final result with appropriate status indicator
         if state.status == "completed":
+            console.print(f"  [dim]✓ Done in {format_duration(elapsed)}[/dim]")
             response_text = _show_agent_result(state, model)
         elif state.status == "failed":
-            console.print(f"  [red]✗ Failed: {state.error}[/red]")
-            console.print()  # Padding after error
+            console.print(f"  [red]✗ Failed after {format_duration(elapsed)}[/red]")
+            console.print()
+            console.print(f"  [red]╭{'─' * 50}╮[/red]")
+            console.print(
+                "  [red]│[/red] [bold red]Something went wrong[/bold red]"
+                + " " * 27
+                + "[red]│[/red]"
+            )
+            console.print(f"  [red]│[/red]{' ' * 50}[red]│[/red]")
+            error_msg = state.error or "Unknown error"
+            # Truncate long errors
+            if len(error_msg) > 46:
+                error_msg = error_msg[:43] + "..."
+            padding = 48 - len(error_msg)
+            console.print(
+                f"  [red]│[/red] [dim]{error_msg}[/dim]"
+                + " " * padding
+                + "[red]│[/red]"
+            )
+            console.print(f"  [red]│[/red]{' ' * 50}[red]│[/red]")
+            console.print(
+                "  [red]│[/red] [dim]Please try again or rephrase your request[/dim]"
+                + " " * 5
+                + "[red]│[/red]"
+            )
+            console.print(f"  [red]╰{'─' * 50}╯[/red]")
+            console.print()
             response_text = f"Failed: {state.error}"
         elif state.status == "max_iterations":
             console.print(
-                "  [yellow]⚠ Reached max iterations without completing[/yellow]"
+                f"  [yellow]⚠ Stopped after {format_duration(elapsed)}[/yellow]"
             )
+            console.print()
+            console.print(f"  [yellow]╭{'─' * 50}╮[/yellow]")
+            console.print(
+                "  [yellow]│[/yellow] [bold yellow]Could not complete the task[/bold yellow]"
+                + " " * 20
+                + "[yellow]│[/yellow]"
+            )
+            console.print(f"  [yellow]│[/yellow]{' ' * 50}[yellow]│[/yellow]")
+            console.print(
+                "  [yellow]│[/yellow] [dim]Reached maximum attempts without success.[/dim]"
+                + " " * 5
+                + "[yellow]│[/yellow]"
+            )
+            console.print(
+                "  [yellow]│[/yellow] [dim]Try breaking down your request into[/dim]"
+                + " " * 10
+                + "[yellow]│[/yellow]"
+            )
+            console.print(
+                "  [yellow]│[/yellow] [dim]smaller, more specific tasks.[/dim]"
+                + " " * 17
+                + "[yellow]│[/yellow]"
+            )
+            console.print(f"  [yellow]╰{'─' * 50}╯[/yellow]")
+            console.print()
             if state.steps:
                 # Show what was accomplished
                 response_text = _show_agent_result(state, model)
-            else:
-                console.print()  # Padding if no results to show
 
         return response_text
 

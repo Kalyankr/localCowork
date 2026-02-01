@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     ollama_timeout: int = 120
     max_json_retries: int = 2
     max_tokens: int = 2048
+    num_ctx: int = 8192  # Context window size (increase for longer prompts)
 
     # Sandbox Settings
     sandbox_timeout: int = 300  # 5 minutes for Python scripts
