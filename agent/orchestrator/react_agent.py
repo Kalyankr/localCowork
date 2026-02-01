@@ -459,10 +459,14 @@ class ReActAgent:
                 # Act: Execute the chosen action
                 if action:
                     # Check for repeated similar commands
-                    if self._is_repeated_command(action, state.steps):
-                        logger.warning("Detected repeated command, forcing completion")
+                    repeat_reason = self._is_repeated_command(action, state.steps)
+                    if repeat_reason:
+                        logger.warning(f"Detected repeated command: {repeat_reason}")
                         state.status = "completed"
-                        state.final_answer = "I couldn't find what you're looking for after searching. The file may not exist or have a different name."
+                        # Generate context-aware completion message
+                        state.final_answer = self._generate_stuck_message(
+                            state, repeat_reason
+                        )
                         state.steps.append(step)
                         break
 
@@ -934,10 +938,16 @@ class ReActAgent:
             lines.append(f"{step.iteration}. {action_str} → {result_str}")
         return "\n".join(lines)
 
-    def _is_repeated_command(self, action: Action, steps: list[AgentStep]) -> bool:
-        """Check if this command is essentially repeating previous commands."""
+    def _is_repeated_command(
+        self, action: Action, steps: list[AgentStep]
+    ) -> str | None:
+        """Check if this command is essentially repeating previous commands.
+
+        Returns:
+            None if not repeated, or a reason string if stuck.
+        """
         if not steps or len(steps) < 3:
-            return False
+            return None
 
         # Extract command from action
         current_cmd = ""
@@ -947,13 +957,14 @@ class ReActAgent:
             current_cmd = action.args.get("code", "")
 
         if not current_cmd:
-            return False
+            return None
 
         # Get base command pattern (first word/command)
         current_base = current_cmd.split()[0] if current_cmd.split() else ""
 
-        # Count similar commands in recent steps
-        similar_count = 0
+        # Count similar FAILED commands in recent steps
+        failed_search_count = 0
+        exact_repeat_count = 0
         search_commands = {"ls", "find", "locate", "grep", "cat", "head", "tail"}
 
         for step in steps[-5:]:  # Check last 5 steps
@@ -970,15 +981,68 @@ class ReActAgent:
 
             prev_base = prev_cmd.split()[0] if prev_cmd.split() else ""
 
-            # Check for similar file-searching commands
-            if current_base in search_commands and prev_base in search_commands:
-                similar_count += 1
-            # Check for nearly identical commands
-            elif current_cmd.strip() == prev_cmd.strip():
-                return True  # Exact repeat
+            # Only count as problematic if the previous command failed or had no output
+            step_failed = (
+                step.result
+                and step.result.status != "success"
+                or (step.result and not step.result.output)
+            )
 
-        # If we've run 2+ similar search commands, we're likely stuck
-        return similar_count >= 2
+            # Check for nearly identical commands
+            if current_cmd.strip() == prev_cmd.strip():
+                exact_repeat_count += 1
+                if exact_repeat_count >= 2:
+                    return "exact_repeat"
+
+            # Check for similar file-searching commands that failed
+            if (
+                current_base in search_commands
+                and prev_base in search_commands
+                and step_failed
+            ):
+                failed_search_count += 1
+
+        # Only stuck if we've had 3+ failed search attempts
+        if failed_search_count >= 3:
+            return "search_loop"
+
+        return None
+
+    def _generate_stuck_message(self, state: AgentState, reason: str) -> str:
+        """Generate a context-appropriate message when the agent gets stuck."""
+        # Check if we have any successful results to summarize
+        successful_results = []
+        for step in state.steps:
+            if step.result and step.result.status == "success" and step.result.output:
+                successful_results.append(step)
+
+        if successful_results:
+            # We did something successfully - summarize what was done
+            last_success = successful_results[-1]
+            action_desc = ""
+            if last_success.action:
+                if last_success.action.tool == "shell":
+                    cmd = last_success.action.args.get("command", "")
+                    if any(
+                        w in cmd
+                        for w in ["touch", "echo", "mkdir", "cp", "mv", ">", ">>"]
+                    ):
+                        action_desc = f"I executed the command and it completed successfully. Output: {last_success.result.output[:500] if last_success.result.output else 'No output'}"
+                    else:
+                        action_desc = f"Here's what I found: {last_success.result.output[:500] if last_success.result.output else 'Command completed.'}"
+                elif last_success.action.tool == "python":
+                    action_desc = f"The Python code executed successfully. Result: {last_success.result.output[:500] if last_success.result.output else 'No output'}"
+                else:
+                    action_desc = f"Completed successfully: {last_success.result.output[:200] if last_success.result.output else 'Done'}"
+            return action_desc or "The task was completed."
+
+        # No successes - give appropriate message based on reason
+        if reason == "search_loop":
+            return "I searched but couldn't find what you're looking for. The file may not exist, have a different name, or be in a different location."
+        elif reason == "exact_repeat":
+            return "I seem to be stuck in a loop. Could you provide more details or try rephrasing your request?"
+        else:
+            return "I wasn't able to complete this task. Please try with more specific instructions."
 
 
 # Re-export models for backward compatibility
