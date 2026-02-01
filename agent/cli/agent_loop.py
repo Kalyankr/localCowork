@@ -170,6 +170,8 @@ def _process_input_agentic(
         "status": "thinking",
         "steps": [],  # List of (iteration, action, status, thought_preview)
         "last_error": None,  # Track last error for retry message
+        "parallel_subtasks": [],  # List of subtask descriptions for parallel mode
+        "parallel_completed": 0,  # Count of completed subtasks
     }
 
     # Nice spinner animation frames
@@ -185,10 +187,28 @@ def _process_input_agentic(
         status = current_state["status"]
         steps = current_state["steps"]
         action = current_state["action"]
+        parallel_subtasks = current_state["parallel_subtasks"]
 
         # Build display
         line = Text()
         line.append("  ")
+
+        # Handle parallel sub-agent mode
+        if status == "parallel" and parallel_subtasks:
+            line.append("⚡ ", style="bold blue")
+            line.append(f"Running {len(parallel_subtasks)} subtasks in parallel", style="blue")
+            line.append("\n")
+            for i, subtask in enumerate(parallel_subtasks):
+                line.append("    ")
+                if i < current_state["parallel_completed"]:
+                    line.append("├─ ✓ ", style="green")
+                    line.append(subtask[:40], style="green")
+                else:
+                    line.append(f"├─ {spinner} ", style="cyan")
+                    line.append(subtask[:40], style="cyan")
+                if i < len(parallel_subtasks) - 1:
+                    line.append("\n")
+            return line
 
         if status == "retrying":
             line.append(f"{spinner} ", style="bold yellow")
@@ -238,6 +258,20 @@ def _process_input_agentic(
         current_state["iteration"] = iteration
         current_state["thought"] = thought
         current_state["action"] = action or ""
+
+        # Handle parallel sub-agent mode
+        if status == "parallel":
+            current_state["status"] = "parallel"
+            # Parse subtask descriptions from action field
+            if action:
+                subtasks = [s.strip() for s in action.split(",")]
+                current_state["parallel_subtasks"] = subtasks
+            return
+
+        # Handle completion of parallel subtasks
+        if status in ("completed", "partial") and current_state["parallel_subtasks"]:
+            current_state["parallel_completed"] = len(current_state["parallel_subtasks"])
+            return
 
         # Map status to display status
         if status in ("thinking", "planning"):
