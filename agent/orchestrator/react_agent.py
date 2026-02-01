@@ -10,6 +10,7 @@ Unlike one-shot planning, the ReAct loop makes decisions step-by-step,
 allowing for dynamic adaptation and error recovery.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -201,9 +202,7 @@ class ReActAgent:
             if len(independent) < 2:
                 return False, []
 
-            logger.info(
-                f"Task decomposed into {len(independent)} parallel subtasks"
-            )
+            logger.info(f"Task decomposed into {len(independent)} parallel subtasks")
             return True, independent
 
         except Exception as e:
@@ -270,22 +269,22 @@ class ReActAgent:
             )
 
         # Run all subtasks concurrently
-        tasks = [
-            self._run_subtask(subtask, parent_context) for subtask in subtasks
-        ]
+        tasks = [self._run_subtask(subtask, parent_context) for subtask in subtasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert exceptions to error results
         processed_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                processed_results.append({
-                    "id": subtasks[i].id,
-                    "description": subtasks[i].description,
-                    "status": "failed",
-                    "result": None,
-                    "error": str(result),
-                })
+                processed_results.append(
+                    {
+                        "id": subtasks[i].id,
+                        "description": subtasks[i].description,
+                        "status": "failed",
+                        "result": None,
+                        "error": str(result),
+                    }
+                )
             else:
                 processed_results.append(result)
 
@@ -322,8 +321,7 @@ class ReActAgent:
             logger.warning(f"Failed to merge subtask results: {e}")
             # Fallback: simple concatenation
             return "\n".join(
-                f"- {r['description']}: {r['result'] or r['error']}"
-                for r in results
+                f"- {r['description']}: {r['result'] or r['error']}" for r in results
             )
 
     async def run(self, goal: str) -> AgentState:

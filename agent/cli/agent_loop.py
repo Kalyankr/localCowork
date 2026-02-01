@@ -196,7 +196,9 @@ def _process_input_agentic(
         # Handle parallel sub-agent mode
         if status == "parallel" and parallel_subtasks:
             line.append("⚡ ", style="bold blue")
-            line.append(f"Running {len(parallel_subtasks)} subtasks in parallel", style="blue")
+            line.append(
+                f"Running {len(parallel_subtasks)} subtasks in parallel", style="blue"
+            )
             line.append("\n")
             for i, subtask in enumerate(parallel_subtasks):
                 line.append("    ")
@@ -270,7 +272,9 @@ def _process_input_agentic(
 
         # Handle completion of parallel subtasks
         if status in ("completed", "partial") and current_state["parallel_subtasks"]:
-            current_state["parallel_completed"] = len(current_state["parallel_subtasks"])
+            current_state["parallel_completed"] = len(
+                current_state["parallel_subtasks"]
+            )
             return
 
         # Map status to display status
