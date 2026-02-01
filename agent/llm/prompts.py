@@ -128,3 +128,121 @@ DATA: {final_context}
 
 Output JSON:
 {{"verified": true/false, "reason": "...", "summary": "User-friendly summary"}}"""
+
+
+# =============================================================================
+# Sub-Agent / Parallel Task Prompts
+# =============================================================================
+
+TASK_DECOMPOSITION_PROMPT = """You are analyzing a complex task to break it into parallelizable subtasks.
+
+## TASK
+{goal}
+
+## RULES
+1. Only decompose if the task has 2+ INDEPENDENT parts that can run in parallel
+2. Each subtask should be self-contained and completable in 3-5 steps
+3. If tasks depend on each other's results, they CANNOT be parallel
+4. Simple tasks should NOT be decomposed - return empty subtasks
+
+## EXAMPLES
+
+**Example 1: Parallelizable**
+Task: "Organize my Downloads folder and also summarize my notes.txt file"
+```json
+{{
+  "should_parallelize": true,
+  "reasoning": "These are independent tasks - organizing files doesn't need notes summary",
+  "subtasks": [
+    {{"id": "1", "description": "Organize Downloads folder by file type", "dependencies": []}},
+    {{"id": "2", "description": "Read and summarize notes.txt file", "dependencies": []}}
+  ]
+}}
+```
+
+**Example 2: Not Parallelizable (Dependencies)**
+Task: "Read sales.csv and then create a chart from it"
+```json
+{{
+  "should_parallelize": false,
+  "reasoning": "Chart creation depends on reading the CSV first - sequential",
+  "subtasks": []
+}}
+```
+
+**Example 3: Not Parallelizable (Simple)**
+Task: "List files in my home directory"
+```json
+{{
+  "should_parallelize": false,
+  "reasoning": "Single simple command - no need to decompose",
+  "subtasks": []
+}}
+```
+
+**Example 4: Parallelizable Research**
+Task: "Search for Python best practices and also search for async patterns"
+```json
+{{
+  "should_parallelize": true,
+  "reasoning": "Two independent web searches",
+  "subtasks": [
+    {{"id": "1", "description": "Search for Python best practices", "dependencies": []}},
+    {{"id": "2", "description": "Search for Python async patterns", "dependencies": []}}
+  ]
+}}
+```
+
+**Example 5: Batch Processing**
+Task: "Summarize report1.pdf, report2.pdf, and report3.pdf"
+```json
+{{
+  "should_parallelize": true,
+  "reasoning": "Each PDF can be processed independently",
+  "subtasks": [
+    {{"id": "1", "description": "Summarize report1.pdf", "dependencies": []}},
+    {{"id": "2", "description": "Summarize report2.pdf", "dependencies": []}},
+    {{"id": "3", "description": "Summarize report3.pdf", "dependencies": []}}
+  ]
+}}
+```
+
+## OUTPUT FORMAT (JSON only)
+```json
+{{
+  "should_parallelize": true/false,
+  "reasoning": "Why or why not",
+  "subtasks": [
+    {{"id": "1", "description": "...", "dependencies": []}},
+    {{"id": "2", "description": "...", "dependencies": ["1"]}}
+  ]
+}}
+```
+
+YOUR JSON:"""
+
+
+MERGE_SUBTASKS_PROMPT = """You are merging results from parallel subtasks into a single response.
+
+## ORIGINAL GOAL
+{goal}
+
+## SUBTASK RESULTS
+{subtask_results}
+
+## INSTRUCTIONS
+1. Combine all results into a coherent, unified response
+2. Don't just list results - synthesize them
+3. If any subtask failed, acknowledge it but include successful results
+4. Keep the response concise and user-friendly
+
+## OUTPUT FORMAT (JSON only)
+```json
+{{
+  "success": true/false,
+  "summary": "Combined user-friendly response...",
+  "details": {{"subtask_1": "brief result", "subtask_2": "brief result"}}
+}}
+```
+
+YOUR JSON:"""
