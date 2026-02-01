@@ -302,16 +302,32 @@ def _process_input_agentic(
 
         # Stop live display temporarily to show confirmation
         width = _get_width()
+        inner_width = width - 8  # Account for "  ╭" and "╮" on edges
         console.print()
-        console.print(f"  [red]╭{'─' * (width - 8)}╮[/red]")
-        console.print("  [red]│[/red] [bold red]⚠ Confirmation Required[/bold red]")
-        console.print("  [red]│[/red]")
-        # Wrap message lines
+        console.print(f"  [red]╭{'─' * inner_width}╮[/red]")
+
+        # Header line with proper padding
+        header = "⚠ Confirmation Required"
+        header_padding = inner_width - len(header) - 2  # -2 for spaces around text
+        console.print(
+            f"  [red]│[/red] [bold red]{header}[/bold red]"
+            f"{' ' * header_padding}[red]│[/red]"
+        )
+        console.print(f"  [red]│[/red]{' ' * inner_width}[red]│[/red]")
+
+        # Wrap message lines with proper right border
         for line in message.split("\n"):
-            if len(line) > width - 12:
-                line = line[: width - 15] + "..."
-            console.print(f"  [red]│[/red]  [dim]{line}[/dim]")
-        console.print(f"  [red]╰{'─' * (width - 8)}╯[/red]")
+            # Truncate if too long
+            max_line_len = inner_width - 4  # -4 for "  " padding on each side
+            if len(line) > max_line_len:
+                line = line[: max_line_len - 3] + "..."
+            # Pad to align right border
+            line_padding = inner_width - len(line) - 4
+            console.print(
+                f"  [red]│[/red]  [dim]{line}[/dim]{' ' * line_padding}  [red]│[/red]"
+            )
+
+        console.print(f"  [red]╰{'─' * inner_width}╯[/red]")
 
         try:
             result = Confirm.ask("  [bold]Proceed?[/bold]", default=False)
