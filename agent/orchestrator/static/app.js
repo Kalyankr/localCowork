@@ -293,6 +293,30 @@ function updateProgress(msg) {
     const actionEl = el.querySelector('.progress-action');
     const stepsEl = el.querySelector('.progress-steps');
     
+    // Handle parallel sub-agent progress
+    if (msg.status === 'parallel') {
+        el.classList.add('parallel-mode');
+        actionEl.innerHTML = `<span class="parallel-icon">⚡</span> ${msg.thought || 'Running subtasks in parallel'}`;
+        actionEl.className = 'progress-action parallel';
+        
+        // Parse subtask descriptions from action field
+        if (msg.action) {
+            const subtasks = msg.action.split(', ').map(s => s.trim());
+            stepsEl.innerHTML = `
+                <div class="subtask-list">
+                    ${subtasks.map((s, i) => `
+                        <div class="subtask-item" id="subtask-${i}">
+                            <span class="subtask-spinner"></span>
+                            <span class="subtask-text">${s}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        return;
+    }
+    
     // Update action text
     let actionText = 'Thinking...';
     let actionClass = '';
@@ -319,6 +343,20 @@ function updateProgress(msg) {
     // Update step dots
     if (msg.status === 'success' || msg.status === 'error') {
         stepResults.push(msg.status);
+    }
+    
+    // Handle completed/partial status for parallel tasks
+    if (msg.status === 'completed' || msg.status === 'partial') {
+        const subtaskList = el.querySelector('.subtask-list');
+        if (subtaskList) {
+            // Update subtask items to show completion
+            const items = subtaskList.querySelectorAll('.subtask-item');
+            items.forEach(item => {
+                item.classList.add('completed');
+                const spinner = item.querySelector('.subtask-spinner');
+                if (spinner) spinner.outerHTML = '<span class="subtask-check">✓</span>';
+            });
+        }
     }
     
     let stepsHtml = stepResults.slice(-8).map(s => 
