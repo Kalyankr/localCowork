@@ -182,23 +182,23 @@ MAX_HISTORY = settings.max_history_messages
 
 
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.connections: set[WebSocket] = set()
         self.task_subs: dict[str, set[WebSocket]] = defaultdict(set)
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self.connections.add(ws)
 
-    def disconnect(self, ws: WebSocket):
+    def disconnect(self, ws: WebSocket) -> None:
         self.connections.discard(ws)
         for subs in self.task_subs.values():
             subs.discard(ws)
 
-    def subscribe(self, ws: WebSocket, task_id: str):
+    def subscribe(self, ws: WebSocket, task_id: str) -> None:
         self.task_subs[task_id].add(ws)
 
-    async def broadcast(self, task_id: str, msg: WebSocketMessage | dict):
+    async def broadcast(self, task_id: str, msg: WebSocketMessage | dict) -> None:
         """Broadcast a typed message to all subscribers of a task."""
         dead = set()
         data = msg.model_dump() if isinstance(msg, WebSocketMessage) else msg
@@ -210,7 +210,7 @@ class ConnectionManager:
         for conn in dead:
             self.disconnect(conn)
 
-    async def broadcast_all(self, msg: WebSocketMessage):
+    async def broadcast_all(self, msg: WebSocketMessage) -> None:
         """Broadcast a typed message to all connected clients."""
         dead = set()
         for conn in self.connections:
@@ -221,17 +221,17 @@ class ConnectionManager:
         for conn in dead:
             self.disconnect(conn)
 
-    async def send_step_output(self, task_id: str, step: str, output: Any):
+    async def send_step_output(self, task_id: str, step: str, output: Any) -> None:
         """Send step output to task subscribers."""
         await self.broadcast(
             task_id, WebSocketMessage.step_output(task_id, step, output)
         )
 
-    async def send_task_complete(self, task_id: str, summary: str):
+    async def send_task_complete(self, task_id: str, summary: str) -> None:
         """Notify subscribers that a task completed."""
         await self.broadcast(task_id, WebSocketMessage.task_complete(task_id, summary))
 
-    async def send_task_error(self, task_id: str, error: str):
+    async def send_task_error(self, task_id: str, error: str) -> None:
         """Notify subscribers of a task error."""
         await self.broadcast(task_id, WebSocketMessage.task_error(task_id, error))
 
@@ -244,7 +244,7 @@ ws = ConnectionManager()
 # =============================================================================
 
 
-def cleanup_sessions():
+def cleanup_sessions() -> None:
     now = time.time()
     expired = [
         s for s, t in conversation_timestamps.items() if now - t > SESSION_TIMEOUT
@@ -259,7 +259,7 @@ def get_history(session_id: str) -> list[ConversationMessage]:
     return conversation_history.get(session_id, [])
 
 
-def add_message(session_id: str, role: str, content: str):
+def add_message(session_id: str, role: str, content: str) -> None:
     conversation_history[session_id].append(
         ConversationMessage(role=role, content=content)
     )
@@ -528,7 +528,7 @@ async def health():
 # =============================================================================
 
 
-def _to_summary(task) -> TaskSummary:
+def _to_summary(task: Any) -> TaskSummary:
     return TaskSummary(
         id=task.id,
         request=task.request,
@@ -540,7 +540,7 @@ def _to_summary(task) -> TaskSummary:
     )
 
 
-def _to_detail(task) -> TaskDetail:
+def _to_detail(task: Any) -> TaskDetail:
     return TaskDetail(
         id=task.id,
         request=task.request,
