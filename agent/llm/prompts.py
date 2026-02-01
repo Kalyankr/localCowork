@@ -134,16 +134,28 @@ Output JSON:
 # Sub-Agent / Parallel Task Prompts
 # =============================================================================
 
-TASK_DECOMPOSITION_PROMPT = """You are analyzing a complex task to break it into parallelizable subtasks.
+TASK_DECOMPOSITION_PROMPT = """You are analyzing a task to decide if it should be broken into parallelizable subtasks.
 
 ## TASK
 {goal}
 
-## RULES
-1. Only decompose if the task has 2+ INDEPENDENT parts that can run in parallel
-2. Each subtask should be self-contained and completable in 3-5 steps
-3. If tasks depend on each other's results, they CANNOT be parallel
-4. Simple tasks should NOT be decomposed - return empty subtasks
+## CRITICAL RULES
+1. **Default to NOT decomposing** - only parallelize if there are 2+ truly INDEPENDENT parts
+2. Each subtask MUST be self-contained with ALL needed info (file paths, content, context)
+3. If tasks share files, data, or depend on each other's results - DO NOT parallelize
+4. Simple tasks (single file, single operation, single query) - DO NOT decompose
+5. When in doubt, return should_parallelize: false
+
+## WHAT CAN BE PARALLELIZED
+- Processing multiple DIFFERENT files independently
+- Searching for multiple unrelated things
+- Running independent operations on different targets
+
+## WHAT CANNOT BE PARALLELIZED
+- Tasks that share the same file
+- Tasks where one needs the output of another
+- Tasks that require reading something first, then processing it
+- Any task that mentions "then", "after", "based on", "using the result"
 
 ## EXAMPLES
 

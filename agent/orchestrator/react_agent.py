@@ -210,23 +210,43 @@ class ReActAgent:
             return False, []
 
     async def _run_subtask(
-        self, subtask: SubTask, parent_context: dict[str, Any]
+        self, subtask: SubTask, parent_context: dict[str, Any], parent_goal: str = ""
     ) -> dict[str, Any]:
         """
         Run a single subtask using a sub-agent.
+
+        Args:
+            subtask: The subtask to execute
+            parent_context: Context from parent agent (files read, data collected)
+            parent_goal: The parent agent's goal for reference
 
         Returns:
             Dict with subtask result
         """
         logger.info(f"Sub-agent starting: {subtask.description}")
 
-        # Create a sub-agent with reduced iterations
+        # Build context-aware conversation history for sub-agent
+        sub_agent_context = []
+        if parent_goal:
+            sub_agent_context.append({
+                "role": "system",
+                "content": f"You are working on a subtask of: {parent_goal}"
+            })
+        # Include relevant parent context as system message
+        if parent_context:
+            context_summary = json.dumps(parent_context, indent=2, default=str)[:2000]
+            sub_agent_context.append({
+                "role": "system",
+                "content": f"Available context from parent task:\n{context_summary}"
+            })
+
+        # Create a sub-agent with reduced iterations and inherited context
         sub_agent = ReActAgent(
             sandbox=self.sandbox,
             on_progress=self.on_progress,
             on_confirm=self.on_confirm,
             max_iterations=SUB_AGENT_MAX_ITERATIONS,
-            conversation_history=[],  # Fresh context for sub-agent
+            conversation_history=sub_agent_context,  # Pass parent context
             require_confirmation=self.require_confirmation,
         )
         sub_agent._is_sub_agent = True
@@ -234,12 +254,24 @@ class ReActAgent:
         try:
             state = await sub_agent.run(subtask.description)
 
+            # Extract meaningful result even if final_answer is None
+            result_text = state.final_answer
+            if not result_text and state.steps:
+                # Try to extract result from last successful step
+                for step in reversed(state.steps):
+                    if step.result and step.result.status == "success" and step.result.output:
+                        result_text = str(step.result.output)[:1000]
+                        break
+                if not result_text:
+                    result_text = f"Subtask ran {len(state.steps)} steps but produced no explicit result."
+
             return {
                 "id": subtask.id,
                 "description": subtask.description,
                 "status": state.status,
-                "result": state.final_answer,
+                "result": result_text,
                 "error": state.error,
+                "steps_count": len(state.steps),
             }
         except Exception as e:
             logger.error(f"Sub-agent failed: {e}")
@@ -252,10 +284,15 @@ class ReActAgent:
             }
 
     async def _run_parallel_subtasks(
-        self, subtasks: list[SubTask], parent_context: dict[str, Any]
+        self, subtasks: list[SubTask], parent_context: dict[str, Any], parent_goal: str = ""
     ) -> list[dict[str, Any]]:
         """
         Run multiple subtasks in parallel.
+
+        Args:
+            subtasks: List of subtasks to run
+            parent_context: Context from parent agent
+            parent_goal: The parent agent's goal
 
         Returns:
             List of subtask results
@@ -268,8 +305,8 @@ class ReActAgent:
                 ", ".join(st.description[:30] for st in subtasks),
             )
 
-        # Run all subtasks concurrently
-        tasks = [self._run_subtask(subtask, parent_context) for subtask in subtasks]
+        # Run all subtasks concurrently with parent context
+        tasks = [self._run_subtask(subtask, parent_context, parent_goal) for subtask in subtasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert exceptions to error results
@@ -346,8 +383,8 @@ class ReActAgent:
             if should_parallelize and subtasks:
                 logger.info(f"Running {len(subtasks)} parallel sub-agents")
 
-                # Run subtasks in parallel
-                results = await self._run_parallel_subtasks(subtasks, state.context)
+                # Run subtasks in parallel with goal context
+                results = await self._run_parallel_subtasks(subtasks, state.context, goal)
                 state.sub_agent_results = results
 
                 # Merge results
@@ -943,10 +980,15 @@ class ReActAgent:
     ) -> str | None:
         """Check if this command is essentially repeating previous commands.
 
+        Detects:
+        - exact_repeat: Same command executed 2+ times consecutively
+        - search_loop: Multiple failed search attempts (3+ times)
+        - confirmation_loop: Repeated requests for user input without progress
+
         Returns:
             None if not repeated, or a reason string if stuck.
         """
-        if not steps or len(steps) < 3:
+        if not steps or len(steps) < 2:
             return None
 
         # Extract command from action
@@ -959,17 +1001,22 @@ class ReActAgent:
         if not current_cmd:
             return None
 
-        # Get base command pattern (first word/command)
-        current_base = current_cmd.split()[0] if current_cmd.split() else ""
+        # Normalize command for comparison
+        current_cmd_normalized = current_cmd.strip().lower()
+        current_words = current_cmd.split()
+        current_base = current_words[0] if current_words else ""
 
-        # Count similar FAILED commands in recent steps
-        failed_search_count = 0
+        # Count patterns in recent steps
         exact_repeat_count = 0
-        search_commands = {"ls", "find", "locate", "grep", "cat", "head", "tail"}
+        similar_repeat_count = 0
+        failed_search_count = 0
+        search_commands = {"ls", "find", "locate", "grep", "cat", "head", "tail", "file"}
 
-        for step in steps[-5:]:  # Check last 5 steps
+        # Check last 6 steps for patterns
+        for step in steps[-6:]:
             if not step.action:
                 continue
+
             prev_cmd = ""
             if step.action.tool == "shell":
                 prev_cmd = step.action.args.get("command", "")
@@ -979,22 +1026,25 @@ class ReActAgent:
             if not prev_cmd:
                 continue
 
-            prev_base = prev_cmd.split()[0] if prev_cmd.split() else ""
+            prev_cmd_normalized = prev_cmd.strip().lower()
+            prev_words = prev_cmd.split()
+            prev_base = prev_words[0] if prev_words else ""
 
-            # Only count as problematic if the previous command failed or had no output
+            # Track result status
             step_failed = (
-                step.result
-                and step.result.status != "success"
-                or (step.result and not step.result.output)
+                step.result is not None
+                and (step.result.status != "success" or not step.result.output)
             )
 
-            # Check for nearly identical commands
-            if current_cmd.strip() == prev_cmd.strip():
+            # Exact repeat detection (case-insensitive)
+            if current_cmd_normalized == prev_cmd_normalized:
                 exact_repeat_count += 1
-                if exact_repeat_count >= 2:
-                    return "exact_repeat"
 
-            # Check for similar file-searching commands that failed
+            # Similar command detection (same base command with similar args)
+            elif current_base == prev_base and action.tool == step.action.tool:
+                similar_repeat_count += 1
+
+            # Search loop detection
             if (
                 current_base in search_commands
                 and prev_base in search_commands
@@ -1002,8 +1052,17 @@ class ReActAgent:
             ):
                 failed_search_count += 1
 
-        # Only stuck if we've had 3+ failed search attempts
+        # Thresholds for detecting loops
+        if exact_repeat_count >= 2:
+            logger.warning(f"Exact repeat detected: '{current_cmd[:50]}...' repeated {exact_repeat_count + 1} times")
+            return "exact_repeat"
+
+        if similar_repeat_count >= 3:
+            logger.warning(f"Similar commands detected: same base '{current_base}' used {similar_repeat_count + 1} times")
+            return "similar_loop"
+
         if failed_search_count >= 3:
+            logger.warning(f"Search loop detected: {failed_search_count} failed search attempts")
             return "search_loop"
 
         return None
@@ -1020,27 +1079,31 @@ class ReActAgent:
             # We did something successfully - summarize what was done
             last_success = successful_results[-1]
             action_desc = ""
-            if last_success.action:
+            result = last_success.result  # Already verified non-None in the filter
+            if last_success.action and result:
+                output_text = str(result.output) if result.output else ""
                 if last_success.action.tool == "shell":
                     cmd = last_success.action.args.get("command", "")
                     if any(
                         w in cmd
                         for w in ["touch", "echo", "mkdir", "cp", "mv", ">", ">>"]
                     ):
-                        action_desc = f"I executed the command and it completed successfully. Output: {last_success.result.output[:500] if last_success.result.output else 'No output'}"
+                        action_desc = f"I executed the command and it completed successfully. Output: {output_text[:500] or 'No output'}"
                     else:
-                        action_desc = f"Here's what I found: {last_success.result.output[:500] if last_success.result.output else 'Command completed.'}"
+                        action_desc = f"Here's what I found: {output_text[:500] or 'Command completed.'}"
                 elif last_success.action.tool == "python":
-                    action_desc = f"The Python code executed successfully. Result: {last_success.result.output[:500] if last_success.result.output else 'No output'}"
+                    action_desc = f"The Python code executed successfully. Result: {output_text[:500] or 'No output'}"
                 else:
-                    action_desc = f"Completed successfully: {last_success.result.output[:200] if last_success.result.output else 'Done'}"
+                    action_desc = f"Completed successfully: {output_text[:200] or 'Done'}"
             return action_desc or "The task was completed."
 
         # No successes - give appropriate message based on reason
         if reason == "search_loop":
             return "I searched but couldn't find what you're looking for. The file may not exist, have a different name, or be in a different location."
         elif reason == "exact_repeat":
-            return "I seem to be stuck in a loop. Could you provide more details or try rephrasing your request?"
+            return "I detected a repeated command pattern. The previous attempts didn't produce the expected result. Could you provide more specific details or try a different approach?"
+        elif reason == "similar_loop":
+            return "I've tried several similar approaches without success. Could you provide more context or try rephrasing your request?"
         else:
             return "I wasn't able to complete this task. Please try with more specific instructions."
 

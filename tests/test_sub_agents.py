@@ -223,7 +223,7 @@ class TestParallelExecution:
         }
 
         subtask = SubTask(id="1", description="Organize files")
-        result = await agent._run_subtask(subtask, {})
+        result = await agent._run_subtask(subtask, {}, "Parent task goal")
 
         assert result["id"] == "1"
         assert result["description"] == "Organize files"
@@ -251,7 +251,7 @@ class TestParallelExecution:
         mock_llm.side_effect = mock_response
 
         subtask = SubTask(id="1", description="Long running task")
-        result = await agent._run_subtask(subtask, {})
+        result = await agent._run_subtask(subtask, {}, "Parent task")
 
         # Should eventually stop (completed via repeat detection, or max_iterations)
         assert result["status"] in ("completed", "max_iterations")
@@ -274,7 +274,7 @@ class TestParallelExecution:
             SubTask(id="3", description="Task 3"),
         ]
 
-        results = await agent._run_parallel_subtasks(subtasks, {})
+        results = await agent._run_parallel_subtasks(subtasks, {}, "Test parallel run")
 
         assert len(results) == 3
         assert all(r["status"] == "completed" for r in results)
@@ -310,7 +310,7 @@ class TestParallelExecution:
             SubTask(id="3", description="Task 3"),
         ]
 
-        results = await agent._run_parallel_subtasks(subtasks, {})
+        results = await agent._run_parallel_subtasks(subtasks, {}, "Mixed results test")
 
         assert len(results) == 3
         statuses = [r["status"] for r in results]
