@@ -512,13 +512,15 @@ def _get_input() -> str:
     """Get user input with complete blue rectangle box.
 
     Shows the full box (top, sides, bottom) before typing,
-    with cursor positioned inside. Ensures breathing room
-    below the input box so it's not at terminal edge.
+    with cursor positioned inside. For long text, the box
+    expands to show multiple lines.
     """
     width = _get_width()
     inner_width = width - 8
+    max_input_len = inner_width - 5  # Space for "│ > " and " │"
+
     try:
-        # Print complete box (top, middle with prompt, bottom)
+        # Print initial box with prompt
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
         console.print(
             f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
@@ -526,7 +528,6 @@ def _get_input() -> str:
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
 
         # Print empty lines BELOW the box to create scroll buffer
-        # This ensures the box isn't at terminal bottom
         console.print()
         console.print()
 
@@ -535,12 +536,46 @@ def _get_input() -> str:
         sys.stdout.write("\033[4A\033[7C")
         sys.stdout.flush()
 
-        # Get input (user types inside the box)
+        # Get input
         user_input = input()
 
-        # Move cursor down to after the empty lines (middle + bottom + 2 empty = 4 lines)
-        sys.stdout.write("\033[4B\r")
-        sys.stdout.flush()
+        # After input, redraw the box with the full text properly wrapped
+        if len(user_input) > max_input_len:
+            # Move back up and clear the old box
+            # Go up 1 line (we're on middle), clear from here down
+            sys.stdout.write("\033[1A")  # Up to top border
+            sys.stdout.write("\033[J")  # Clear from cursor to end of screen
+            sys.stdout.flush()
+
+            # Redraw box with wrapped text
+            console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
+
+            # Split input into lines that fit
+            remaining = user_input
+            first_line = True
+            while remaining:
+                chunk = remaining[:max_input_len]
+                remaining = remaining[max_input_len:]
+                padding = max_input_len - len(chunk)
+
+                if first_line:
+                    console.print(
+                        f"  [blue]│[/blue] [dim]>[/dim] {chunk}"
+                        f"{' ' * padding} [blue]│[/blue]"
+                    )
+                    first_line = False
+                else:
+                    console.print(
+                        f"  [blue]│[/blue]   {chunk}{' ' * padding} [blue]│[/blue]"
+                    )
+
+            console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
+            console.print()
+            console.print()
+        else:
+            # Short input - just move cursor down past the box
+            sys.stdout.write("\033[4B\r")
+            sys.stdout.flush()
 
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
