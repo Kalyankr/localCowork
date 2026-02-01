@@ -56,6 +56,30 @@ class AgentState(BaseModel):
     context: dict[str, Any] = {}  # Variables from tool outputs
     final_answer: str | None = None
     error: str | None = None
+    # Sub-agent tracking
+    is_sub_agent: bool = False
+    parent_goal: str | None = None
+    sub_agent_results: list[dict[str, Any]] = []
+
+
+class SubTask(BaseModel):
+    """A subtask that can be executed by a sub-agent."""
+
+    id: str
+    description: str
+    dependencies: list[str] = []  # IDs of tasks this depends on
+    status: str = "pending"  # pending, running, completed, failed
+    result: str | None = None
+    error: str | None = None
+
+
+class SubAgentState(BaseModel):
+    """State for coordinating multiple sub-agents."""
+
+    main_goal: str
+    subtasks: list[SubTask] = []
+    completed_subtasks: dict[str, Any] = {}  # id -> result
+    status: str = "planning"  # planning, executing, merging, completed, failed
 
 
 # Type for progress callback
