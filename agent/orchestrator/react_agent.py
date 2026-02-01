@@ -19,7 +19,12 @@ from typing import Any
 
 from agent.config import settings
 from agent.llm.client import call_llm_json_async
-from agent.llm.prompts import REACT_STEP_PROMPT, REFLECTION_PROMPT
+from agent.llm.prompts import (
+    MERGE_SUBTASKS_PROMPT,
+    REACT_STEP_PROMPT,
+    REFLECTION_PROMPT,
+    TASK_DECOMPOSITION_PROMPT,
+)
 from agent.orchestrator.agent_models import (
     Action,
     AgentState,
@@ -27,6 +32,8 @@ from agent.orchestrator.agent_models import (
     ConfirmCallback,
     Observation,
     ProgressCallback,
+    SubAgentState,
+    SubTask,
     Thought,
 )
 from agent.orchestrator.models import StepResult
@@ -46,6 +53,10 @@ logger = logging.getLogger(__name__)
 MAX_ITERATIONS = 15
 # Maximum consecutive failures before stopping
 MAX_CONSECUTIVE_FAILURES = 3
+# Maximum sub-agents that can run in parallel
+MAX_PARALLEL_SUBTASKS = 4
+# Reduced iterations for sub-agents (they handle smaller tasks)
+SUB_AGENT_MAX_ITERATIONS = 8
 
 
 def _sanitize_error(error: str, tool: str = "command") -> str:
@@ -152,10 +163,175 @@ class ReActAgent:
         self.max_iterations = max_iterations
         self.conversation_history = conversation_history or []
         self.require_confirmation = require_confirmation
+        self._is_sub_agent = False  # Track if this is a sub-agent
+
+    async def _should_decompose(self, goal: str) -> tuple[bool, list[SubTask]]:
+        """
+        Analyze if a task should be decomposed into parallel subtasks.
+
+        Returns:
+            Tuple of (should_parallelize, list of subtasks)
+        """
+        prompt = TASK_DECOMPOSITION_PROMPT.format(goal=goal)
+
+        try:
+            response = await call_llm_json_async(prompt)
+
+            should_parallelize = response.get("should_parallelize", False)
+            subtasks_data = response.get("subtasks", [])
+
+            if not should_parallelize or len(subtasks_data) < 2:
+                return False, []
+
+            # Limit to MAX_PARALLEL_SUBTASKS
+            subtasks_data = subtasks_data[:MAX_PARALLEL_SUBTASKS]
+
+            subtasks = [
+                SubTask(
+                    id=str(st.get("id", i)),
+                    description=st.get("description", ""),
+                    dependencies=st.get("dependencies", []),
+                )
+                for i, st in enumerate(subtasks_data)
+            ]
+
+            # Filter to only independent subtasks (no dependencies)
+            independent = [st for st in subtasks if not st.dependencies]
+
+            if len(independent) < 2:
+                return False, []
+
+            logger.info(
+                f"Task decomposed into {len(independent)} parallel subtasks"
+            )
+            return True, independent
+
+        except Exception as e:
+            logger.warning(f"Task decomposition failed: {e}")
+            return False, []
+
+    async def _run_subtask(
+        self, subtask: SubTask, parent_context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Run a single subtask using a sub-agent.
+
+        Returns:
+            Dict with subtask result
+        """
+        logger.info(f"Sub-agent starting: {subtask.description}")
+
+        # Create a sub-agent with reduced iterations
+        sub_agent = ReActAgent(
+            sandbox=self.sandbox,
+            on_progress=self.on_progress,
+            on_confirm=self.on_confirm,
+            max_iterations=SUB_AGENT_MAX_ITERATIONS,
+            conversation_history=[],  # Fresh context for sub-agent
+            require_confirmation=self.require_confirmation,
+        )
+        sub_agent._is_sub_agent = True
+
+        try:
+            state = await sub_agent.run(subtask.description)
+
+            return {
+                "id": subtask.id,
+                "description": subtask.description,
+                "status": state.status,
+                "result": state.final_answer,
+                "error": state.error,
+            }
+        except Exception as e:
+            logger.error(f"Sub-agent failed: {e}")
+            return {
+                "id": subtask.id,
+                "description": subtask.description,
+                "status": "failed",
+                "result": None,
+                "error": str(e),
+            }
+
+    async def _run_parallel_subtasks(
+        self, subtasks: list[SubTask], parent_context: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """
+        Run multiple subtasks in parallel.
+
+        Returns:
+            List of subtask results
+        """
+        if self.on_progress:
+            self.on_progress(
+                0,
+                "parallel",
+                f"Running {len(subtasks)} subtasks in parallel",
+                ", ".join(st.description[:30] for st in subtasks),
+            )
+
+        # Run all subtasks concurrently
+        tasks = [
+            self._run_subtask(subtask, parent_context) for subtask in subtasks
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Convert exceptions to error results
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                processed_results.append({
+                    "id": subtasks[i].id,
+                    "description": subtasks[i].description,
+                    "status": "failed",
+                    "result": None,
+                    "error": str(result),
+                })
+            else:
+                processed_results.append(result)
+
+        return processed_results
+
+    async def _merge_subtask_results(
+        self, goal: str, results: list[dict[str, Any]]
+    ) -> str:
+        """
+        Merge results from parallel subtasks into a unified response.
+
+        Returns:
+            Merged summary string
+        """
+        # Format results for the prompt
+        results_text = ""
+        for r in results:
+            status = "✓" if r["status"] == "completed" else "✗"
+            results_text += f"\n[{status}] {r['description']}:\n"
+            if r["result"]:
+                results_text += f"  {r['result']}\n"
+            if r["error"]:
+                results_text += f"  Error: {r['error']}\n"
+
+        prompt = MERGE_SUBTASKS_PROMPT.format(
+            goal=goal,
+            subtask_results=results_text,
+        )
+
+        try:
+            response = await call_llm_json_async(prompt)
+            return response.get("summary", "Subtasks completed. See details above.")
+        except Exception as e:
+            logger.warning(f"Failed to merge subtask results: {e}")
+            # Fallback: simple concatenation
+            return "\n".join(
+                f"- {r['description']}: {r['result'] or r['error']}"
+                for r in results
+            )
 
     async def run(self, goal: str) -> AgentState:
         """
         Execute the ReAct loop for a given goal.
+
+        If the task can be decomposed into parallel subtasks, sub-agents
+        will be spawned to handle them concurrently.
 
         Args:
             goal: Natural language description of what to accomplish
@@ -163,7 +339,38 @@ class ReActAgent:
         Returns:
             AgentState with full execution history
         """
-        state = AgentState(goal=goal)
+        state = AgentState(goal=goal, is_sub_agent=self._is_sub_agent)
+
+        # Try to decompose into parallel subtasks (only for main agent)
+        if not self._is_sub_agent:
+            should_parallelize, subtasks = await self._should_decompose(goal)
+
+            if should_parallelize and subtasks:
+                logger.info(f"Running {len(subtasks)} parallel sub-agents")
+
+                # Run subtasks in parallel
+                results = await self._run_parallel_subtasks(subtasks, state.context)
+                state.sub_agent_results = results
+
+                # Merge results
+                merged = await self._merge_subtask_results(goal, results)
+
+                # Check if all succeeded
+                all_success = all(r["status"] == "completed" for r in results)
+                state.status = "completed" if all_success else "partial"
+                state.final_answer = merged
+
+                if self.on_progress:
+                    self.on_progress(
+                        len(subtasks),
+                        "completed" if all_success else "partial",
+                        f"Completed {sum(1 for r in results if r['status'] == 'completed')}/{len(results)} subtasks",
+                        None,
+                    )
+
+                return state
+
+        # Standard sequential ReAct loop
         consecutive_failures = 0
 
         # Initial observation - keep it minimal to avoid confusing the model
@@ -786,4 +993,8 @@ __all__ = [
     "Observation",
     "ProgressCallback",
     "ConfirmCallback",
+    "SubAgentState",
+    "SubTask",
+    "MAX_PARALLEL_SUBTASKS",
+    "SUB_AGENT_MAX_ITERATIONS",
 ]
