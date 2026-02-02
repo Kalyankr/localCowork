@@ -506,7 +506,7 @@ class ReActAgent:
                                 was_file_success = (
                                     last_step
                                     and last_step.result
-                                    and last_step.result.success
+                                    and last_step.result.status == "success"
                                     and last_step.action
                                     and last_step.action.tool in ("shell", "python")
                                 )

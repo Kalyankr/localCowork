@@ -497,9 +497,9 @@ def _show_execution_steps(steps: list):
         action = step.action
 
         # Determine status icon
-        if step.result and step.result.success:
+        if step.result and step.result.status == "success":
             icon = "[green]✓[/green]"
-        elif step.result and not step.result.success:
+        elif step.result and step.result.status == "error":
             icon = "[red]✗[/red]"
         else:
             icon = "[dim]○[/dim]"

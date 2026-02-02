@@ -436,8 +436,33 @@ async def call_llm_async(prompt: str, force_json: bool = False) -> str:
         raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
     except ResponseError as e:
         raise LLMError(f"Ollama error: {e}")
+    except TimeoutError:
+        raise LLMError(
+            f"Request timed out. The model may be slow or overloaded. "
+            f"Try increasing LOCALCOWORK_OLLAMA_TIMEOUT (current: {s.ollama_timeout}s)"
+        )
+    except ConnectionError as e:
+        raise LLMError(
+            f"Connection lost to Ollama. Check if Ollama is still running. Error: {e}"
+        )
     except Exception as e:
-        raise LLMError(f"Async LLM request failed: {e}")
+        error_str = str(e).lower()
+        if "timeout" in error_str:
+            raise LLMError(
+                f"Request timed out after {s.ollama_timeout}s. "
+                f"Model '{s.ollama_model}' may be slow. Try a smaller model or increase timeout."
+            )
+        elif "connection" in error_str or "refused" in error_str:
+            raise LLMError(
+                f"Cannot connect to Ollama at {s.ollama_url}. Is Ollama running? "
+                f"Start with: ollama serve"
+            )
+        elif "memory" in error_str or "oom" in error_str:
+            raise LLMError(
+                f"Out of memory loading model '{s.ollama_model}'. "
+                f"Try a smaller model like 'mistral' or 'llama3.2:3b'"
+            )
+        raise LLMError(f"LLM request failed: {e}")
 
 
 async def call_llm_chat_async(
