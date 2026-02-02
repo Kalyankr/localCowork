@@ -184,9 +184,15 @@ def validate_command_paths(command: str) -> tuple[AccessLevel, list[str]]:
         matches = re.findall(pattern, command)
         paths_found.update(matches)
 
-    # Filter out common non-path arguments
+    # Filter out common non-path arguments and special files
     non_paths = {"-", "--", "-r", "-f", "-rf", "-v", "-a", "-l", "-la"}
-    paths_found = {p for p in paths_found if p not in non_paths and len(p) > 1}
+    # /dev/null is a standard output discard, always safe
+    safe_special_paths = {"/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"}
+    paths_found = {
+        p
+        for p in paths_found
+        if p not in non_paths and p not in safe_special_paths and len(p) > 1
+    }
 
     if not paths_found:
         return AccessLevel.ALLOWED, []

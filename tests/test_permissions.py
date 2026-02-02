@@ -175,6 +175,20 @@ class TestCommandPathValidation:
         assert level == AccessLevel.ALLOWED
         assert len(paths) == 0
 
+    def test_dev_null_ignored(self):
+        """Test that /dev/null redirects are ignored."""
+        # 2>/dev/null is common stderr suppression
+        level, paths = validate_command_paths(
+            "find ~/Downloads -name '*.pdf' 2>/dev/null"
+        )
+        assert level == AccessLevel.ALLOWED
+        assert "/dev/null" not in paths
+
+        # stdout to /dev/null
+        level, paths = validate_command_paths("ls -la > /dev/null")
+        assert level == AccessLevel.ALLOWED
+        assert "/dev/null" not in paths
+
 
 class TestErrorMessages:
     """Tests for error message generation."""
