@@ -1170,7 +1170,10 @@ class ReActAgent:
         Detects:
         - exact_repeat: Same command executed 2+ times consecutively
         - search_loop: Multiple failed search attempts (3+ times)
-        - confirmation_loop: Repeated requests for user input without progress
+
+        Note: "Similar command" detection is intentionally conservative to avoid
+        false positives when the agent legitimately runs multiple shell commands
+        or Python scripts as part of a multi-step task.
 
         Returns:
             None if not repeated, or a reason string if stuck.
@@ -1178,13 +1181,11 @@ class ReActAgent:
         if not steps or len(steps) < 2:
             return None
 
-        # Extract command from action
-        current_cmd = ""
-        if action.tool == "shell":
-            current_cmd = action.args.get("command", "")
-        elif action.tool == "python":
-            current_cmd = action.args.get("code", "")
+        # Only check shell commands for repeats - Python code varies too much
+        if action.tool != "shell":
+            return None
 
+        current_cmd = action.args.get("command", "")
         if not current_cmd:
             return None
 
@@ -1195,17 +1196,12 @@ class ReActAgent:
 
         # Count patterns in recent steps
         exact_repeat_count = 0
-        similar_repeat_count = 0
         failed_search_count = 0
         search_commands = {
             "ls",
             "find",
             "locate",
             "grep",
-            "cat",
-            "head",
-            "tail",
-            "file",
         }
 
         # Check last 6 steps for patterns
@@ -1213,12 +1209,11 @@ class ReActAgent:
             if not step.action:
                 continue
 
-            prev_cmd = ""
-            if step.action.tool == "shell":
-                prev_cmd = step.action.args.get("command", "")
-            elif step.action.tool == "python":
-                prev_cmd = step.action.args.get("code", "")
+            # Only compare with shell commands
+            if step.action.tool != "shell":
+                continue
 
+            prev_cmd = step.action.args.get("command", "")
             if not prev_cmd:
                 continue
 
@@ -1235,11 +1230,7 @@ class ReActAgent:
             if current_cmd_normalized == prev_cmd_normalized:
                 exact_repeat_count += 1
 
-            # Similar command detection (same base command with similar args)
-            elif current_base == prev_base and action.tool == step.action.tool:
-                similar_repeat_count += 1
-
-            # Search loop detection
+            # Search loop detection - only for failed search commands
             if (
                 current_base in search_commands
                 and prev_base in search_commands
@@ -1253,12 +1244,6 @@ class ReActAgent:
                 f"Exact repeat detected: '{current_cmd[:50]}...' repeated {exact_repeat_count + 1} times"
             )
             return "exact_repeat"
-
-        if similar_repeat_count >= 3:
-            logger.warning(
-                f"Similar commands detected: same base '{current_base}' used {similar_repeat_count + 1} times"
-            )
-            return "similar_loop"
 
         if failed_search_count >= 3:
             logger.warning(
@@ -1304,7 +1289,6 @@ class ReActAgent:
         reason_messages = {
             "search_loop": "I searched but couldn't find what you're looking for. The file may not exist, have a different name, or be in a different location.",
             "exact_repeat": "I detected a repeated command pattern. The previous attempts didn't produce the expected result. Could you provide more specific details or try a different approach?",
-            "similar_loop": "I've tried several similar approaches without success. Could you provide more context or try rephrasing your request?",
         }
         return reason_messages.get(
             reason,
