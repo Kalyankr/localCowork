@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     max_agent_iterations: int = 15  # Max ReAct loop iterations
     parallel_execution: bool = True
     max_recovery_attempts: int = 3  # Max auto-retry with different approach
+    use_docker: bool = False  # If True, run Python in Docker sandbox (requires Docker)
 
     # File Permission Settings
     # Comma-separated list of allowed paths (glob patterns supported)
