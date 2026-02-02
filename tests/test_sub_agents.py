@@ -1,6 +1,6 @@
 """Tests for sub-agent parallel execution functionality."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -245,7 +245,10 @@ class TestParallelExecution:
             return {
                 "thought": f"Working iteration {call_count[0]}",
                 "is_complete": False,
-                "action": {"tool": "shell", "args": {"command": f"echo step{call_count[0]}"}},
+                "action": {
+                    "tool": "shell",
+                    "args": {"command": f"echo step{call_count[0]}"},
+                },
             }
 
         mock_llm.side_effect = mock_response
@@ -299,7 +302,7 @@ class TestParallelExecution:
             return {
                 "thought": "Done",
                 "is_complete": True,
-                "response": f"Task complete",
+                "response": "Task complete",
             }
 
         mock_llm.side_effect = mock_response
@@ -341,13 +344,29 @@ class TestResultMerging:
         }
 
         results = [
-            {"id": "1", "description": "Organize files", "status": "completed", "result": "Organized 10 files", "error": None},
-            {"id": "2", "description": "Summarize notes", "status": "completed", "result": "Created summary", "error": None},
+            {
+                "id": "1",
+                "description": "Organize files",
+                "status": "completed",
+                "result": "Organized 10 files",
+                "error": None,
+            },
+            {
+                "id": "2",
+                "description": "Summarize notes",
+                "status": "completed",
+                "result": "Created summary",
+                "error": None,
+            },
         ]
 
         merged = await agent._merge_subtask_results("Organize and summarize", results)
 
-        assert "completed" in merged.lower() or "organized" in merged.lower() or "tasks" in merged.lower()
+        assert (
+            "completed" in merged.lower()
+            or "organized" in merged.lower()
+            or "tasks" in merged.lower()
+        )
 
     @pytest.mark.asyncio
     @patch("agent.orchestrator.react_agent.call_llm_json_async")
@@ -356,8 +375,20 @@ class TestResultMerging:
         mock_llm.side_effect = Exception("LLM error")
 
         results = [
-            {"id": "1", "description": "Task 1", "status": "completed", "result": "Result 1", "error": None},
-            {"id": "2", "description": "Task 2", "status": "completed", "result": "Result 2", "error": None},
+            {
+                "id": "1",
+                "description": "Task 1",
+                "status": "completed",
+                "result": "Result 1",
+                "error": None,
+            },
+            {
+                "id": "2",
+                "description": "Task 2",
+                "status": "completed",
+                "result": "Result 2",
+                "error": None,
+            },
         ]
 
         merged = await agent._merge_subtask_results("Goal", results)
@@ -388,7 +419,6 @@ class TestSubAgentIntegration:
 
         def mock_response(*args, **kwargs):
             call_count[0] += 1
-            prompt = args[0] if args else ""
 
             # First call: decomposition
             if call_count[0] == 1:
@@ -397,7 +427,11 @@ class TestSubAgentIntegration:
                     "reasoning": "Independent tasks",
                     "subtasks": [
                         {"id": "1", "description": "Search Python", "dependencies": []},
-                        {"id": "2", "description": "Search JavaScript", "dependencies": []},
+                        {
+                            "id": "2",
+                            "description": "Search JavaScript",
+                            "dependencies": [],
+                        },
                     ],
                 }
             # Sub-agent calls: complete immediately

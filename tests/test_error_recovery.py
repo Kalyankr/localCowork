@@ -4,8 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent.orchestrator.agent_models import Action, AgentState, AgentStep, Observation, Thought
-from agent.orchestrator.models import StepResult
+from agent.orchestrator.agent_models import (
+    Action,
+    AgentState,
+)
 from agent.orchestrator.react_agent import ReActAgent
 
 

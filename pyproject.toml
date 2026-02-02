@@ -85,3 +85,6 @@ disable_error_code = ["call-overload", "arg-type", "return-value", "misc", "name
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "e2e: End-to-end tests that require real system execution",
+]
