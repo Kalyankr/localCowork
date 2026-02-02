@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     max_code_retries: int = 2
     max_agent_iterations: int = 15  # Max ReAct loop iterations
     parallel_execution: bool = True
+    max_recovery_attempts: int = 3  # Max auto-retry with different approach
+
+    # File Permission Settings
+    # Comma-separated list of allowed paths (glob patterns supported)
+    # Empty means allow all paths (with confirmation for sensitive ones)
+    allowed_paths: str = ""  # e.g., "~/projects,~/Documents,/tmp"
+    # Comma-separated list of denied paths (always blocked, glob patterns supported)
+    denied_paths: str = (
+        "~/.ssh,~/.gnupg,~/.aws,~/.config/gcloud,/etc/passwd,/etc/shadow"
+    )
+    # Whether to require confirmation for paths outside allowed_paths
+    require_path_confirmation: bool = True
 
     # Task Management Settings
     workspace_dir: str = "~/.localcowork/workspaces"

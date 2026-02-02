@@ -21,6 +21,7 @@ from typing import Any
 from agent.config import settings
 from agent.llm.client import call_llm_json_async
 from agent.llm.prompts import (
+    ERROR_RECOVERY_PROMPT,
     MERGE_SUBTASKS_PROMPT,
     REACT_STEP_PROMPT,
     REFLECTION_PROMPT,
@@ -38,6 +39,11 @@ from agent.orchestrator.agent_models import (
     Thought,
 )
 from agent.orchestrator.models import StepResult
+from agent.permissions import (
+    AccessLevel,
+    get_permission_error_message,
+    validate_command_paths,
+)
 from agent.safety import (
     DangerLevel,
     analyze_command,
@@ -228,17 +234,21 @@ class ReActAgent:
         # Build context-aware conversation history for sub-agent
         sub_agent_context = []
         if parent_goal:
-            sub_agent_context.append({
-                "role": "system",
-                "content": f"You are working on a subtask of: {parent_goal}"
-            })
+            sub_agent_context.append(
+                {
+                    "role": "system",
+                    "content": f"You are working on a subtask of: {parent_goal}",
+                }
+            )
         # Include relevant parent context as system message
         if parent_context:
             context_summary = json.dumps(parent_context, indent=2, default=str)[:2000]
-            sub_agent_context.append({
-                "role": "system",
-                "content": f"Available context from parent task:\n{context_summary}"
-            })
+            sub_agent_context.append(
+                {
+                    "role": "system",
+                    "content": f"Available context from parent task:\n{context_summary}",
+                }
+            )
 
         # Create a sub-agent with reduced iterations and inherited context
         sub_agent = ReActAgent(
@@ -259,7 +269,11 @@ class ReActAgent:
             if not result_text and state.steps:
                 # Try to extract result from last successful step
                 for step in reversed(state.steps):
-                    if step.result and step.result.status == "success" and step.result.output:
+                    if (
+                        step.result
+                        and step.result.status == "success"
+                        and step.result.output
+                    ):
                         result_text = str(step.result.output)[:1000]
                         break
                 if not result_text:
@@ -284,7 +298,10 @@ class ReActAgent:
             }
 
     async def _run_parallel_subtasks(
-        self, subtasks: list[SubTask], parent_context: dict[str, Any], parent_goal: str = ""
+        self,
+        subtasks: list[SubTask],
+        parent_context: dict[str, Any],
+        parent_goal: str = "",
     ) -> list[dict[str, Any]]:
         """
         Run multiple subtasks in parallel.
@@ -306,7 +323,10 @@ class ReActAgent:
             )
 
         # Run all subtasks concurrently with parent context
-        tasks = [self._run_subtask(subtask, parent_context, parent_goal) for subtask in subtasks]
+        tasks = [
+            self._run_subtask(subtask, parent_context, parent_goal)
+            for subtask in subtasks
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert exceptions to error results
@@ -384,7 +404,9 @@ class ReActAgent:
                 logger.info(f"Running {len(subtasks)} parallel sub-agents")
 
                 # Run subtasks in parallel with goal context
-                results = await self._run_parallel_subtasks(subtasks, state.context, goal)
+                results = await self._run_parallel_subtasks(
+                    subtasks, state.context, goal
+                )
                 state.sub_agent_results = results
 
                 # Merge results
@@ -516,8 +538,63 @@ class ReActAgent:
                         key = self._make_context_key(action, iteration)
                         state.context[key] = result.output
                         consecutive_failures = 0
+                        recovery_attempts = 0  # Reset recovery counter on success
                     else:
                         consecutive_failures += 1
+
+                        # Attempt automatic recovery before giving up
+                        if consecutive_failures < MAX_CONSECUTIVE_FAILURES:
+                            recovery_attempts = getattr(state, "_recovery_attempts", 0)
+                            max_recovery = settings.max_recovery_attempts
+
+                            if recovery_attempts < max_recovery:
+                                # Notify user we're trying a different approach
+                                if self.on_progress:
+                                    self.on_progress(
+                                        iteration,
+                                        "retrying",
+                                        "Trying a different approach...",
+                                        action.tool if action else "",
+                                    )
+
+                                (
+                                    recovery_action,
+                                    user_msg,
+                                ) = await self._attempt_recovery(
+                                    state,
+                                    action,
+                                    result.error or "Unknown error",
+                                    recovery_attempts + 1,
+                                )
+
+                                if recovery_action:
+                                    # Store recovery attempt count
+                                    state._recovery_attempts = recovery_attempts + 1
+                                    # Execute the recovery action
+                                    recovery_result = await self._execute_action(
+                                        recovery_action, state.context
+                                    )
+
+                                    if recovery_result.status == "success":
+                                        # Recovery succeeded!
+                                        step.result = recovery_result
+                                        step.action = recovery_action
+                                        key = self._make_context_key(
+                                            recovery_action, iteration
+                                        )
+                                        state.context[key] = recovery_result.output
+                                        consecutive_failures = 0
+                                        logger.info(
+                                            f"Recovery successful on attempt {recovery_attempts + 1}"
+                                        )
+                                elif user_msg:
+                                    # Recovery gave up with a message
+                                    step.result = StepResult(
+                                        step_id="recovery",
+                                        status="error",
+                                        error=user_msg,
+                                    )
+
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                             state.status = "failed"
                             state.error = f"Too many consecutive failures. Last error: {result.error}"
@@ -639,6 +716,46 @@ class ReActAgent:
         """
         if action.tool == "shell":
             command = action.args.get("command", "")
+
+            # First check: File permission validation
+            access_level, blocked_paths = validate_command_paths(command)
+
+            if access_level == AccessLevel.SENSITIVE:
+                return (
+                    False,
+                    f"🔒 Access denied: {get_permission_error_message(blocked_paths[0], access_level)}",
+                )
+
+            if access_level == AccessLevel.DENIED:
+                return (
+                    False,
+                    f"🚫 Path not allowed: {', '.join(blocked_paths)}",
+                )
+
+            if access_level == AccessLevel.NEEDS_CONFIRMATION:
+                if self.on_confirm:
+                    message = (
+                        f"⚠️ PATH ACCESS CONFIRMATION\n\n"
+                        f"The command wants to access:\n"
+                        f"  {', '.join(blocked_paths)}\n\n"
+                        f"These paths are outside your allowed directories.\n"
+                        f"Do you want to allow this? (y/N)"
+                    )
+                    confirmed = await self.on_confirm(
+                        command, "Path outside allowed directories", message
+                    )
+                    if not confirmed:
+                        return (
+                            False,
+                            f"❌ Path access denied by user: {', '.join(blocked_paths)}",
+                        )
+                elif self.require_confirmation:
+                    return (
+                        False,
+                        f"🚫 Path access requires confirmation: {', '.join(blocked_paths)}",
+                    )
+
+            # Second check: Command safety analysis
             danger_level, reason = analyze_command(command)
 
             if danger_level == DangerLevel.BLOCKED:
@@ -975,6 +1092,76 @@ class ReActAgent:
             lines.append(f"{step.iteration}. {action_str} → {result_str}")
         return "\n".join(lines)
 
+    async def _attempt_recovery(
+        self,
+        state: AgentState,
+        failed_action: Action,
+        error: str,
+        attempt: int,
+    ) -> tuple[Action | None, str | None]:
+        """
+        Attempt to recover from a failed action by asking LLM for alternative approach.
+
+        Args:
+            state: Current agent state
+            failed_action: The action that failed
+            error: The error message
+            attempt: Current recovery attempt number
+
+        Returns:
+            Tuple of (new_action, user_message) where new_action is None if recovery failed
+        """
+        max_attempts = settings.max_recovery_attempts
+
+        # Build history summary
+        history = self._summarize_steps(state)
+
+        # Get failed command details
+        failed_tool = failed_action.tool
+        if failed_tool == "shell":
+            failed_command = failed_action.args.get("command", "")
+        elif failed_tool == "python":
+            failed_command = failed_action.args.get("code", "")[:200]
+        else:
+            failed_command = str(failed_action.args)
+
+        prompt = ERROR_RECOVERY_PROMPT.format(
+            goal=state.goal,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            failed_tool=failed_tool,
+            failed_command=failed_command,
+            error=error,
+            history=history if history else "(no previous steps)",
+        )
+
+        try:
+            response = await call_llm_json_async(prompt)
+
+            if response.get("give_up"):
+                user_message = response.get(
+                    "user_message",
+                    f"Unable to complete task after {attempt} attempts: {error}",
+                )
+                return None, user_message
+
+            action_data = response.get("action")
+            if action_data:
+                new_action = Action(
+                    tool=action_data.get("tool", "shell"),
+                    args=action_data.get("args", {}),
+                    description=response.get("new_approach", "Recovery attempt"),
+                )
+                logger.info(
+                    f"Recovery attempt {attempt}: {new_action.tool} - {new_action.description}"
+                )
+                return new_action, None
+
+        except Exception as e:
+            logger.error(f"Error during recovery attempt: {e}")
+
+        return None, f"Recovery failed: {error}"
+
     def _is_repeated_command(
         self, action: Action, steps: list[AgentStep]
     ) -> str | None:
@@ -1010,7 +1197,16 @@ class ReActAgent:
         exact_repeat_count = 0
         similar_repeat_count = 0
         failed_search_count = 0
-        search_commands = {"ls", "find", "locate", "grep", "cat", "head", "tail", "file"}
+        search_commands = {
+            "ls",
+            "find",
+            "locate",
+            "grep",
+            "cat",
+            "head",
+            "tail",
+            "file",
+        }
 
         # Check last 6 steps for patterns
         for step in steps[-6:]:
@@ -1031,9 +1227,8 @@ class ReActAgent:
             prev_base = prev_words[0] if prev_words else ""
 
             # Track result status
-            step_failed = (
-                step.result is not None
-                and (step.result.status != "success" or not step.result.output)
+            step_failed = step.result is not None and (
+                step.result.status != "success" or not step.result.output
             )
 
             # Exact repeat detection (case-insensitive)
@@ -1054,15 +1249,21 @@ class ReActAgent:
 
         # Thresholds for detecting loops
         if exact_repeat_count >= 2:
-            logger.warning(f"Exact repeat detected: '{current_cmd[:50]}...' repeated {exact_repeat_count + 1} times")
+            logger.warning(
+                f"Exact repeat detected: '{current_cmd[:50]}...' repeated {exact_repeat_count + 1} times"
+            )
             return "exact_repeat"
 
         if similar_repeat_count >= 3:
-            logger.warning(f"Similar commands detected: same base '{current_base}' used {similar_repeat_count + 1} times")
+            logger.warning(
+                f"Similar commands detected: same base '{current_base}' used {similar_repeat_count + 1} times"
+            )
             return "similar_loop"
 
         if failed_search_count >= 3:
-            logger.warning(f"Search loop detected: {failed_search_count} failed search attempts")
+            logger.warning(
+                f"Search loop detected: {failed_search_count} failed search attempts"
+            )
             return "search_loop"
 
         return None
@@ -1094,18 +1295,21 @@ class ReActAgent:
                 elif last_success.action.tool == "python":
                     action_desc = f"The Python code executed successfully. Result: {output_text[:500] or 'No output'}"
                 else:
-                    action_desc = f"Completed successfully: {output_text[:200] or 'Done'}"
+                    action_desc = (
+                        f"Completed successfully: {output_text[:200] or 'Done'}"
+                    )
             return action_desc or "The task was completed."
 
         # No successes - give appropriate message based on reason
-        if reason == "search_loop":
-            return "I searched but couldn't find what you're looking for. The file may not exist, have a different name, or be in a different location."
-        elif reason == "exact_repeat":
-            return "I detected a repeated command pattern. The previous attempts didn't produce the expected result. Could you provide more specific details or try a different approach?"
-        elif reason == "similar_loop":
-            return "I've tried several similar approaches without success. Could you provide more context or try rephrasing your request?"
-        else:
-            return "I wasn't able to complete this task. Please try with more specific instructions."
+        reason_messages = {
+            "search_loop": "I searched but couldn't find what you're looking for. The file may not exist, have a different name, or be in a different location.",
+            "exact_repeat": "I detected a repeated command pattern. The previous attempts didn't produce the expected result. Could you provide more specific details or try a different approach?",
+            "similar_loop": "I've tried several similar approaches without success. Could you provide more context or try rephrasing your request?",
+        }
+        return reason_messages.get(
+            reason,
+            "I wasn't able to complete this task. Please try with more specific instructions.",
+        )
 
 
 # Re-export models for backward compatibility

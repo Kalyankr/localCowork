@@ -258,3 +258,55 @@ MERGE_SUBTASKS_PROMPT = """You are merging results from parallel subtasks into a
 ```
 
 YOUR JSON:"""
+
+
+ERROR_RECOVERY_PROMPT = """You are LocalCowork, recovering from a failed action.
+
+## ORIGINAL GOAL
+{goal}
+
+## FAILED ACTION (Attempt {attempt}/{max_attempts})
+Tool: {failed_tool}
+Command: {failed_command}
+Error: {error}
+
+## PREVIOUS STEPS
+{history}
+
+## RECOVERY INSTRUCTIONS
+The previous approach failed. You must try a DIFFERENT approach:
+1. Analyze WHY the command failed
+2. Consider alternative methods to achieve the same goal
+3. Don't repeat the same command - try something different
+4. If the task seems impossible, explain why
+
+## ALTERNATIVE APPROACHES TO CONSIDER
+- If a file wasn't found: try searching with find, locate, or different path
+- If permission was denied: try with different location or ask user
+- If command not found: try alternative tool or install suggestion
+- If syntax error: fix the syntax and retry
+- If timeout: try with smaller data or simpler approach
+- If network error: check connectivity or try different URL
+
+## OUTPUT FORMAT (JSON only)
+```json
+{{
+  "analysis": "Brief analysis of why it failed",
+  "new_approach": "Description of different approach to try",
+  "action": {{"tool": "shell|python|web_search|fetch_webpage", "args": {{...}}}},
+  "give_up": false
+}}
+```
+
+Or if recovery is not possible:
+```json
+{{
+  "analysis": "Why this cannot be recovered",
+  "new_approach": null,
+  "action": null,
+  "give_up": true,
+  "user_message": "Clear explanation for user about what went wrong and suggestions"
+}}
+```
+
+YOUR JSON:"""
