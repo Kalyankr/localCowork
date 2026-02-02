@@ -492,27 +492,57 @@ class ReActAgent:
 
                     # Run reflection to verify (only for tasks, not conversations)
                     if not direct_response:
-                        reflection = await self._reflect(state)
-                        if not reflection["verified"]:
-                            # Agent was wrong, continue
-                            logger.info(f"Reflection failed: {reflection['reason']}")
-                            state.status = "running"
-                            state.final_answer = None
-                            # Add reflection as observation
-                            state.steps[-1] = AgentStep(
-                                iteration=iteration,
-                                observation=Observation(
-                                    source="reflection", content=reflection
-                                ),
-                                thought=thought,
-                                action=None,
-                            )
-                            continue
+                        # Track reflection attempts to avoid infinite loops
+                        reflection_attempts = getattr(state, "_reflection_attempts", 0)
+                        max_reflection_attempts = 2  # Don't reflect more than twice
+
+                        if reflection_attempts < max_reflection_attempts:
+                            state._reflection_attempts = reflection_attempts + 1
+                            reflection = await self._reflect(state)
+
+                            if not reflection["verified"]:
+                                # Check if last step was a successful file operation
+                                last_step = state.steps[-1] if state.steps else None
+                                was_file_success = (
+                                    last_step
+                                    and last_step.result
+                                    and last_step.result.success
+                                    and last_step.action
+                                    and last_step.action.tool in ("shell", "python")
+                                )
+
+                                # If file op succeeded but reflection failed, trust the agent
+                                if was_file_success and reflection_attempts > 0:
+                                    logger.info(
+                                        "Trusting agent completion after successful file operation"
+                                    )
+                                else:
+                                    # Agent was wrong, continue
+                                    logger.info(
+                                        f"Reflection failed: {reflection['reason']}"
+                                    )
+                                    state.status = "running"
+                                    state.final_answer = None
+                                    # Add reflection as observation
+                                    state.steps[-1] = AgentStep(
+                                        iteration=iteration,
+                                        observation=Observation(
+                                            source="reflection", content=reflection
+                                        ),
+                                        thought=thought,
+                                        action=None,
+                                    )
+                                    continue
+                            else:
+                                # Use reflection summary if available
+                                if reflection.get("summary"):
+                                    state.final_answer = reflection["summary"]
+                                logger.info("Goal verified by reflection")
                         else:
-                            # Use reflection summary if available
-                            if reflection.get("summary"):
-                                state.final_answer = reflection["summary"]
-                            logger.info("Goal verified by reflection")
+                            # Max reflection attempts reached, trust the agent
+                            logger.info(
+                                "Max reflection attempts reached, trusting agent completion"
+                            )
                     break
 
                 # Act: Execute the chosen action
@@ -1017,14 +1047,21 @@ class ReActAgent:
             return "(new conversation)"
 
         lines = []
-        # Show last 5 exchanges (10 messages)
-        recent = self.conversation_history[-10:]
+        # Show last 10 exchanges (20 messages) for better context
+        max_messages = min(20, len(self.conversation_history))
+        recent = self.conversation_history[-max_messages:]
+
+        if len(self.conversation_history) > max_messages:
+            lines.append(
+                f"[Earlier: {len(self.conversation_history) - max_messages} messages omitted]"
+            )
+
         for msg in recent:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            # Truncate long messages
-            if len(content) > 200:
-                content = content[:200] + "..."
+            # Truncate long messages but keep more context
+            if len(content) > 500:
+                content = content[:500] + "..."
             prefix = "User:" if role == "user" else "Assistant:"
             lines.append(f"{prefix} {content}")
 

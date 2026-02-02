@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     parallel_execution: bool = True
     max_recovery_attempts: int = 3  # Max auto-retry with different approach
     use_docker: bool = False  # If True, run Python in Docker sandbox (requires Docker)
+    show_steps: bool = True  # If True, show detailed step-by-step execution
 
     # File Permission Settings
     # Comma-separated list of allowed paths (glob patterns supported)

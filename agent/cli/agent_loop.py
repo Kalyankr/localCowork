@@ -399,6 +399,10 @@ def _process_input_agentic(
 
         elapsed = time.time() - start_time
 
+        # Show steps if enabled
+        if settings.show_steps and state.steps:
+            _show_execution_steps(state.steps)
+
         # Get the response for history
         response_text = None
 
@@ -481,6 +485,58 @@ def _process_input_agentic(
         print_error("Error", str(e))
         console.print()  # Padding after error
         return None
+
+
+def _show_execution_steps(steps: list):
+    """Display detailed execution steps after task completion."""
+    console.print()
+    console.print("  [bold dim]Steps executed:[/bold dim]")
+
+    for i, step in enumerate(steps, 1):
+        thought = step.thought
+        action = step.action
+
+        # Determine status icon
+        if step.result and step.result.success:
+            icon = "[green]✓[/green]"
+        elif step.result and not step.result.success:
+            icon = "[red]✗[/red]"
+        else:
+            icon = "[dim]○[/dim]"
+
+        # Format thought (truncate if too long)
+        thought_preview = (
+            thought.reasoning[:60] if thought and thought.reasoning else ""
+        )
+        if thought and thought.reasoning and len(thought.reasoning) > 60:
+            thought_preview += "..."
+
+        # Format action
+        action_str = ""
+        if action:
+            if action.tool == "shell":
+                cmd = action.args.get("command", "")[:40]
+                if len(action.args.get("command", "")) > 40:
+                    cmd += "..."
+                action_str = f"[cyan]$ {cmd}[/cyan]"
+            elif action.tool == "python":
+                code_preview = action.args.get("code", "")[:30].replace("\n", " ")
+                if len(action.args.get("code", "")) > 30:
+                    code_preview += "..."
+                action_str = f"[yellow]▸ {code_preview}[/yellow]"
+            elif action.tool == "web_search":
+                query = action.args.get("query", "")[:30]
+                action_str = f"[blue]🔍 {query}[/blue]"
+            elif action.tool == "done":
+                action_str = "[green]✓ Done[/green]"
+            else:
+                action_str = f"[dim]{action.tool}[/dim]"
+
+        console.print(f"    {icon} [dim]Step {i}:[/dim] {thought_preview}")
+        if action_str:
+            console.print(f"       {action_str}")
+
+    console.print()
 
 
 def _show_agent_result(state, model: str) -> str:
