@@ -228,6 +228,9 @@ async def stream_task(websocket: WebSocket, task_id: str):
         history = get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
 
+        # Create steering queue for mid-task corrections
+        steering_queue = asyncio.Queue()
+
         agent = ReActAgent(
             sandbox=sandbox,
             on_progress=on_progress,
@@ -235,9 +238,42 @@ async def stream_task(websocket: WebSocket, task_id: str):
             max_iterations=settings.max_agent_iterations,
             conversation_history=conv,
             require_confirmation=True,
+            steering_queue=steering_queue,
         )
 
-        state = await agent.run(request_text)
+        async def listen_for_steering():
+            """Listen for steering messages while agent runs."""
+            while True:
+                try:
+                    msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.5)
+                    msg_type = msg.get("type", "")
+                    if msg_type == "steer":
+                        steering_text = msg.get("text", "")
+                        if steering_text:
+                            await steering_queue.put(steering_text)
+                            await websocket.send_json(
+                                {
+                                    "type": "steering_received",
+                                    "task_id": task.id,
+                                    "text": steering_text[:50],
+                                }
+                            )
+                    elif msg_type == "confirm_response":
+                        # Handle confirmation responses (existing behavior)
+                        pass
+                except TimeoutError:
+                    continue
+                except Exception:
+                    break
+
+        # Run agent with steering listener
+        steering_task = asyncio.create_task(listen_for_steering())
+        try:
+            state = await agent.run(request_text)
+        finally:
+            steering_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await steering_task
 
         # Update task state
         if state.status == "completed":

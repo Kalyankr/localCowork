@@ -33,10 +33,13 @@ LocalCowork is a **pure agentic** AI assistant that uses shell commands, Python,
 
 | Feature | Description |
 |---------|-------------|
-| 🔒 **Privacy First** | All processing happens locally-your files never leave your machine |
+| 🔒 **Privacy First** | All processing happens locally—your files never leave your machine |
 | 🤖 **Pure Agentic** | ReAct loop: Observe → Think → Act → Repeat |
+| ⚡ **Parallel Sub-agents** | Complex tasks are split and run concurrently |
+| ↪️ **Mid-task Steering** | Redirect the agent while it's working |
 | 🐚 **Shell + Python** | Uses tools you already know—no complex APIs |
 | 🌐 **Web Search** | Search the web and fetch webpage content |
+| 📄 **Pro Documents** | Create Excel, PowerPoint, Word docs with formulas & charts |
 | 💬 **Conversational** | Remembers context across your session |
 | 🐳 **Sandboxed Python** | Code runs in isolated Docker containers |
 | ⏱️ **Long-running Tasks** | 10 min shell / 5 min Python timeouts |
@@ -145,9 +148,11 @@ LocalCowork uses a **ReAct (Reasoning + Acting)** loop:
 | Tool | What It Does |
 |------|--------------|
 | **shell** | Run any bash command (`ls`, `mv`, `grep`, `curl`, etc.) |
-| **python** | Execute Python code (pandas, requests, openpyxl available) |
+| **python** | Execute Python code with pre-installed libraries |
 | **web_search** | Search the web via DuckDuckGo |
 | **fetch_webpage** | Fetch and extract text from URLs |
+
+**Pre-installed Python libraries:** pandas, matplotlib, openpyxl (Excel), python-pptx (PowerPoint), python-docx (Word)
 
 ### Example Agent Reasoning
 
@@ -206,6 +211,33 @@ Dangerous operations (file deletion, system changes) require explicit user confi
 
 ---
 
+## ↪️ Mid-task Steering
+
+You can redirect the agent while it's working—no need to cancel and start over.
+
+**CLI:** Just type while the agent is running and press Enter:
+```
+You: create a report about Q4 sales
+
+  ◐ Running Python...  ●●
+
+  actually use bar charts instead of pie charts    ← type this mid-task
+
+  ↪ Adjusting: User: actually use bar charts...
+
+  ◆ LocalCowork
+    Done! Created Q4 report with bar charts.
+```
+
+**Web UI:** Send a WebSocket message:
+```json
+{"type": "steer", "text": "use bar charts instead"}
+```
+
+The agent sees your updates at the next iteration and adapts accordingly.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -254,5 +286,5 @@ uv run ruff check --fix .
 ---
 
 <p align="center">
-  <b>Built for local-first AI — Inspired by Claude's Cowork</b>
+  <b>Built for local-first AI - Inspired by Claude's Cowork</b>
 </p>

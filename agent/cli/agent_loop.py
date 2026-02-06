@@ -226,6 +226,13 @@ def _process_input_agentic(
             line.append(
                 "Hmm, that didn't work. Let me try another approach...", style="yellow"
             )
+        elif status == "steering":
+            line.append("↪ ", style="bold magenta")
+            thought = current_state.get("thought", "")
+            if thought:
+                line.append(f"Adjusting: {thought[:50]}", style="magenta")
+            else:
+                line.append("Received your update, adjusting...", style="magenta")
         elif status == "thinking":
             line.append(f"{spinner} ", style="bold yellow")
             line.append("Thinking...", style="yellow")
@@ -284,6 +291,12 @@ def _process_input_agentic(
             current_state["parallel_completed"] = len(
                 current_state["parallel_subtasks"]
             )
+            return
+
+        # Handle steering status
+        if status == "steering":
+            current_state["status"] = "steering"
+            current_state["thought"] = thought
             return
 
         # Map status to display status
@@ -363,12 +376,16 @@ def _process_input_agentic(
             return False
 
     try:
+        # Create steering queue for mid-task corrections
+        steering_queue = asyncio.Queue()
+
         agent = ReActAgent(
             sandbox=sandbox,
             on_progress=on_progress,
             on_confirm=on_confirm,
             max_iterations=settings.max_agent_iterations,
             conversation_history=conversation_history or [],
+            steering_queue=steering_queue,
         )
 
         start_time = time.time()
@@ -386,13 +403,37 @@ def _process_input_agentic(
                         live.update(build_agent_display())
                         await asyncio.sleep(0.2)
 
+                async def steering_listener():
+                    """Listen for user steering input while agent runs."""
+                    import select
+                    import sys
+
+                    while True:
+                        await asyncio.sleep(0.1)
+                        # Check if stdin has data (non-blocking)
+                        if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                            try:
+                                line = sys.stdin.readline().strip()
+                                if line:
+                                    # User typed something - add to steering queue
+                                    await steering_queue.put(line)
+                                    # Update display to show steering received
+                                    current_state["status"] = "steering"
+                                    current_state["thought"] = f"User: {line[:40]}..."
+                            except Exception:
+                                pass
+
                 update_task = asyncio.create_task(updater())
+                steering_task = asyncio.create_task(steering_listener())
                 try:
                     return await agent.run(user_input)
                 finally:
                     update_task.cancel()
+                    steering_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await update_task
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await steering_task
 
             state = asyncio.run(run_with_display())
             live.update(build_agent_display())

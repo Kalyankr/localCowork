@@ -163,6 +163,7 @@ class ReActAgent:
         max_iterations: int = MAX_ITERATIONS,
         conversation_history: list[dict[str, str]] | None = None,
         require_confirmation: bool = True,  # If False, skip confirmation prompts
+        steering_queue: asyncio.Queue | None = None,  # For mid-task user corrections
     ):
         self.sandbox = sandbox
         self.on_progress = on_progress
@@ -170,7 +171,47 @@ class ReActAgent:
         self.max_iterations = max_iterations
         self.conversation_history = conversation_history or []
         self.require_confirmation = require_confirmation
+        self.steering_queue = steering_queue
         self._is_sub_agent = False  # Track if this is a sub-agent
+        self._steering_inputs: list[str] = []  # Accumulated steering from user
+
+    async def _check_steering(self, state: AgentState) -> None:
+        """
+        Check for and process any steering input from the user.
+
+        Steering allows users to redirect the agent mid-task without
+        cancelling the entire operation.
+        """
+        if not self.steering_queue:
+            return
+
+        # Drain all available steering inputs (non-blocking)
+        while True:
+            try:
+                steering = self.steering_queue.get_nowait()
+                self._steering_inputs.append(steering)
+                logger.info(f"Steering received: {steering[:50]}...")
+            except asyncio.QueueEmpty:
+                break
+
+        # If we have steering inputs, update the goal context
+        if self._steering_inputs:
+            # Append steering as context updates
+            steering_context = "\n".join(
+                f"[USER UPDATE {i + 1}]: {s}"
+                for i, s in enumerate(self._steering_inputs)
+            )
+            # Add to state context so the agent sees it
+            state.context["_user_steering"] = steering_context
+
+            # Report steering received
+            if self.on_progress:
+                self.on_progress(
+                    0,
+                    "steering",
+                    f"User provided direction: {self._steering_inputs[-1][:50]}...",
+                    None,
+                )
 
     async def _should_decompose(self, goal: str) -> tuple[bool, list[SubTask]]:
         """
@@ -436,6 +477,8 @@ class ReActAgent:
         logger.info(f"ReAct agent starting: {goal}")
 
         for iteration in range(1, self.max_iterations + 1):
+            # Check for steering input (mid-task user corrections)
+            await self._check_steering(state)
             try:
                 # Get the last observation (initial or from previous action)
                 if iteration == 1:
@@ -502,14 +545,17 @@ class ReActAgent:
 
                             if not reflection["verified"]:
                                 # Check if last step was a successful file operation
-                                last_step = state.steps[-1] if state.steps else None
-                                was_file_success = (
-                                    last_step
-                                    and last_step.result
-                                    and last_step.result.status == "success"
-                                    and last_step.action
-                                    and last_step.action.tool in ("shell", "python")
-                                )
+                                was_file_success = False
+                                if state.steps:
+                                    last_step_for_check = state.steps[-1]
+                                    was_file_success = bool(
+                                        last_step_for_check.result
+                                        and last_step_for_check.result.status
+                                        == "success"
+                                        and last_step_for_check.action
+                                        and last_step_for_check.action.tool
+                                        in ("shell", "python")
+                                    )
 
                                 # If file op succeeded but reflection failed, trust the agent
                                 if was_file_success and reflection_attempts > 0:
@@ -686,8 +732,17 @@ class ReActAgent:
         # Format conversation history
         conv_history = self._format_conversation_history()
 
+        # Include steering input prominently in the goal if present
+        effective_goal = state.goal
+        if self._steering_inputs:
+            steering_text = (
+                "\n\n**USER UPDATES (follow these directions):**\n"
+                + "\n".join(f"- {s}" for s in self._steering_inputs)
+            )
+            effective_goal = state.goal + steering_text
+
         prompt = REACT_STEP_PROMPT.format(
-            goal=state.goal,
+            goal=effective_goal,
             iteration=iteration,
             max_iterations=self.max_iterations,
             conversation_history=conv_history,
