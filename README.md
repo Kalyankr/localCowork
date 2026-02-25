@@ -33,21 +33,21 @@ LocalCowork is a **pure agentic** AI assistant that uses shell commands, Python,
 
 | Feature | Description |
 |---------|-------------|
-| 🔒 **Privacy First** | All processing happens locally—your files never leave your machine |
-| 🤖 **Pure Agentic** | ReAct loop: Observe → Think → Act → Repeat |
-| ⚡ **Parallel Sub-agents** | Complex tasks are split and run concurrently |
-| ↪️ **Mid-task Steering** | Redirect the agent while it's working |
-| 🐚 **Shell + Python** | Uses tools you already know—no complex APIs |
-| 🌐 **Web Search** | Search the web and fetch webpage content |
-| 📄 **Pro Documents** | Create Excel, PowerPoint, Word docs with formulas & charts |
-| 💬 **Conversational** | Remembers context across your session |
-| 🐳 **Sandboxed Python** | Code runs in isolated Docker containers |
-| ⏱️ **Long-running Tasks** | 10 min shell / 5 min Python timeouts |
-| 🎨 **Professional CLI** | Clean interface with progress indicators |
+| **Privacy First** | All processing happens locally—your files never leave your machine |
+| **Pure Agentic** | ReAct loop: Observe → Think → Act → Repeat |
+| **Parallel Sub-agents** | Complex tasks are split and run concurrently |
+| **Mid-task Steering** | Redirect the agent while it's working |
+| **Shell + Python** | Uses tools you already know—no complex APIs |
+| **Web Search** | Search the web and fetch webpage content |
+| **Pro Documents** | Create Excel, PowerPoint, Word docs with formulas & charts |
+| **Conversational** | Remembers context across your session |
+| **Sandboxed Python** | Code runs in isolated Docker containers |
+| **Long-running Tasks** | 10 min shell / 5 min Python timeouts |
+| **Professional CLI** | Clean interface with progress indicators |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -102,7 +102,7 @@ You: analyze sales.csv and show top customers
   ◐ Running Python...  ●
 
   ◆ LocalCowork
-    📊 Sales Analysis (1,247 records):
+    Sales Analysis (1,247 records):
     - Total revenue: $2.4M
     - Top customer: Acme Corp ($89,400)
     - Growth: +38% YoY
@@ -129,13 +129,13 @@ You: what's the weather API endpoint for Seattle?
 
 ---
 
-## 🧠 How It Works
+## How It Works
 
 LocalCowork uses a **ReAct (Reasoning + Acting)** loop:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Request   │────▶│   Think     │────▶│    Act      │
+│   Request   │  ─▶│   Think      │ ─▶│    Act       │
 │             │     │  (Ollama)   │     │ (tools)     │
 └─────────────┘     └─────────────┘     └─────────────┘
                           ▲                    │
