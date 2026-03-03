@@ -164,7 +164,9 @@ class TestErrorRecoveryIntegration:
         success_proc.kill = MagicMock()
         success_proc.wait = AsyncMock()
 
-        with patch("asyncio.create_subprocess_shell", side_effect=[fail_proc, success_proc]):
+        with patch(
+            "asyncio.create_subprocess_shell", side_effect=[fail_proc, success_proc]
+        ):
             state = await agent.run("List files")
 
         # Should have completed with recovery
