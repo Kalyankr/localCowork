@@ -3,7 +3,7 @@
 These tests verify the full flow of the agent with the new features.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -106,8 +106,7 @@ class TestErrorRecoveryIntegration:
 
     @pytest.mark.asyncio
     @patch("agent.orchestrator.react_agent.call_llm_json_async")
-    @patch("subprocess.run")
-    async def test_recovery_after_command_failure(self, mock_run, mock_llm):
+    async def test_recovery_after_command_failure(self, mock_llm):
         """Agent should attempt recovery when a command fails."""
         sandbox = MagicMock()
         agent = ReActAgent(sandbox=sandbox, max_iterations=5)
@@ -148,20 +147,25 @@ class TestErrorRecoveryIntegration:
 
         mock_llm.side_effect = llm_side_effect
 
-        # First command fails, second succeeds
-        fail_result = MagicMock()
-        fail_result.returncode = 2
-        fail_result.stdout = b""
-        fail_result.stderr = b"No such file or directory"
+        # Create mock async processes
+        fail_proc = AsyncMock()
+        fail_proc.communicate = AsyncMock(
+            return_value=(b"", b"No such file or directory")
+        )
+        fail_proc.returncode = 2
+        fail_proc.kill = MagicMock()
+        fail_proc.wait = AsyncMock()
 
-        success_result = MagicMock()
-        success_result.returncode = 0
-        success_result.stdout = b"Documents\nDownloads\nPictures"
-        success_result.stderr = b""
+        success_proc = AsyncMock()
+        success_proc.communicate = AsyncMock(
+            return_value=(b"Documents\nDownloads\nPictures", b"")
+        )
+        success_proc.returncode = 0
+        success_proc.kill = MagicMock()
+        success_proc.wait = AsyncMock()
 
-        mock_run.side_effect = [fail_result, success_result]
-
-        state = await agent.run("List files")
+        with patch("asyncio.create_subprocess_shell", side_effect=[fail_proc, success_proc]):
+            state = await agent.run("List files")
 
         # Should have completed with recovery
         assert state.status in ("completed", "max_iterations")
@@ -251,13 +255,16 @@ class TestCombinedFeatures:
 
         mock_llm.side_effect = llm_side_effect
 
-        with patch("subprocess.run") as mock_run:
-            success_result = MagicMock()
-            success_result.returncode = 0
-            success_result.stdout = b'{"setting": "value"}'
-            success_result.stderr = b""
-            mock_run.return_value = success_result
+        # Create mock async process for successful command
+        success_proc = AsyncMock()
+        success_proc.communicate = AsyncMock(
+            return_value=(b'{"setting": "value"}', b"")
+        )
+        success_proc.returncode = 0
+        success_proc.kill = MagicMock()
+        success_proc.wait = AsyncMock()
 
+        with patch("asyncio.create_subprocess_shell", return_value=success_proc):
             state = await agent.run("Read the config")
 
             # First attempt should be blocked, recovery should work

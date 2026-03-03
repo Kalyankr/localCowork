@@ -28,7 +28,11 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def verify_api_key(api_key: str = Depends(api_key_header)) -> bool:
-    """Verify API key if configured, otherwise allow all requests."""
+    """Verify API key if configured, otherwise allow all requests.
+
+    Only accepts the key via the X-API-Key header (never query strings)
+    to prevent key leakage in server logs, browser history, and URLs.
+    """
     if settings.api_key is None:
         # No API key configured - allow all (localhost only by default)
         return True

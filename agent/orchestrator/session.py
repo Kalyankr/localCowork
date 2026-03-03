@@ -1,11 +1,12 @@
 """Session management for conversations.
 
 This module handles:
-- Conversation history storage
+- Conversation history storage (with per-session locking)
 - Session cleanup
 - Session-related utilities
 """
 
+import asyncio
 import time
 from collections import defaultdict
 
@@ -16,12 +17,37 @@ from agent.orchestrator.models import ConversationMessage
 conversation_history: dict[str, list[ConversationMessage]] = defaultdict(list)
 conversation_timestamps: dict[str, float] = {}
 
+# Per-session locks to prevent race conditions on concurrent access
+_session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+_global_lock = asyncio.Lock()  # Protects _session_locks dict and cleanup
+
 SESSION_TIMEOUT = settings.session_timeout
 MAX_HISTORY = settings.max_history_messages
 
 
-def cleanup_sessions():
+async def _get_session_lock(session_id: str) -> asyncio.Lock:
+    """Get or create a per-session lock."""
+    async with _global_lock:
+        if session_id not in _session_locks:
+            _session_locks[session_id] = asyncio.Lock()
+        return _session_locks[session_id]
+
+
+async def cleanup_sessions():
     """Remove expired sessions."""
+    async with _global_lock:
+        now = time.time()
+        expired = [
+            s for s, t in conversation_timestamps.items() if now - t > SESSION_TIMEOUT
+        ]
+        for s in expired:
+            conversation_history.pop(s, None)
+            conversation_timestamps.pop(s, None)
+            _session_locks.pop(s, None)
+
+
+def cleanup_sessions_sync():
+    """Synchronous cleanup for backward compatibility."""
     now = time.time()
     expired = [
         s for s, t in conversation_timestamps.items() if now - t > SESSION_TIMEOUT
@@ -29,16 +55,39 @@ def cleanup_sessions():
     for s in expired:
         conversation_history.pop(s, None)
         conversation_timestamps.pop(s, None)
+        _session_locks.pop(s, None)
 
 
-def get_history(session_id: str) -> list[ConversationMessage]:
-    """Get conversation history for a session."""
-    cleanup_sessions()
-    return conversation_history.get(session_id, [])
+async def get_history(session_id: str) -> list[ConversationMessage]:
+    """Get conversation history for a session (async, thread-safe)."""
+    await cleanup_sessions()
+    lock = await _get_session_lock(session_id)
+    async with lock:
+        return list(conversation_history.get(session_id, []))
 
 
-def add_message(session_id: str, role: str, content: str):
-    """Add a message to session history."""
+def get_history_sync(session_id: str) -> list[ConversationMessage]:
+    """Get conversation history synchronously (for non-async callers)."""
+    cleanup_sessions_sync()
+    return list(conversation_history.get(session_id, []))
+
+
+async def add_message(session_id: str, role: str, content: str):
+    """Add a message to session history (async, thread-safe)."""
+    lock = await _get_session_lock(session_id)
+    async with lock:
+        conversation_history[session_id].append(
+            ConversationMessage(role=role, content=content)
+        )
+        conversation_timestamps[session_id] = time.time()
+        if len(conversation_history[session_id]) > MAX_HISTORY:
+            conversation_history[session_id] = conversation_history[session_id][
+                -MAX_HISTORY:
+            ]
+
+
+def add_message_sync(session_id: str, role: str, content: str):
+    """Add a message synchronously (for non-async callers)."""
     conversation_history[session_id].append(
         ConversationMessage(role=role, content=content)
     )

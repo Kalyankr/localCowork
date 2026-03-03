@@ -15,7 +15,14 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+import json
+
 from agent.config import settings
+
+# --- WebSocket input sanitization constants ---
+MAX_WS_MESSAGE_SIZE = 65_536  # 64 KB max per message
+MAX_WS_TEXT_FIELD = 4_096  # 4 KB max for text fields (request, steer text, etc.)
+MAX_TASK_ID_LENGTH = 128  # UUIDs are 36 chars; generous upper bound
 from agent.llm.client import LLMError, call_llm_chat_stream_async
 from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.models import WebSocketMessage, WSMessageType
@@ -94,6 +101,26 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 
+def _sanitize_ws_string(value: Any, max_length: int = MAX_WS_TEXT_FIELD) -> str:
+    """Sanitize a WebSocket string field: enforce type and length."""
+    if not isinstance(value, str):
+        return ""
+    return value[:max_length].strip()
+
+
+def _validate_task_id(task_id: Any) -> str | None:
+    """Validate and sanitize a task ID."""
+    if task_id is None:
+        return None
+    if not isinstance(task_id, str):
+        return None
+    sanitized = task_id.strip()[:MAX_TASK_ID_LENGTH]
+    # Only allow alphanumeric, hyphens, underscores (UUID-safe characters)
+    if not all(c.isalnum() or c in "-_" for c in sanitized):
+        return None
+    return sanitized or None
+
+
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time task updates.
 
@@ -105,24 +132,49 @@ async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:
         while True:
-            raw_data = await websocket.receive_json()
+            raw_data = await websocket.receive_text()
+
+            # Enforce message size limit before parsing
+            if len(raw_data) > MAX_WS_MESSAGE_SIZE:
+                error = WebSocketMessage.error(
+                    f"Message too large (max {MAX_WS_MESSAGE_SIZE} bytes)"
+                )
+                await websocket.send_json(error.model_dump())
+                continue
+
             try:
-                msg = WebSocketMessage.model_validate(raw_data)
+                parsed = json.loads(raw_data)
+            except (json.JSONDecodeError, ValueError):
+                error = WebSocketMessage.error("Invalid JSON")
+                await websocket.send_json(error.model_dump())
+                continue
+
+            if not isinstance(parsed, dict):
+                error = WebSocketMessage.error("Message must be a JSON object")
+                await websocket.send_json(error.model_dump())
+                continue
+
+            try:
+                msg = WebSocketMessage.model_validate(parsed)
 
                 if msg.type == WSMessageType.SUBSCRIBE:
-                    if msg.task_id:
-                        ws_manager.subscribe(websocket, msg.task_id)
-                        response = WebSocketMessage.subscribed(msg.task_id)
+                    task_id = _validate_task_id(msg.task_id)
+                    if task_id:
+                        ws_manager.subscribe(websocket, task_id)
+                        response = WebSocketMessage.subscribed(task_id)
                         await websocket.send_json(response.model_dump())
                     else:
-                        error = WebSocketMessage.error("task_id required for subscribe")
+                        error = WebSocketMessage.error(
+                            "Valid task_id required for subscribe"
+                        )
                         await websocket.send_json(error.model_dump())
 
                 elif msg.type == WSMessageType.UNSUBSCRIBE:
-                    if msg.task_id:
-                        ws_manager.task_subs.get(msg.task_id, set()).discard(websocket)
+                    task_id = _validate_task_id(msg.task_id)
+                    if task_id:
+                        ws_manager.task_subs.get(task_id, set()).discard(websocket)
                         await websocket.send_json(
-                            {"type": "unsubscribed", "task_id": msg.task_id}
+                            {"type": "unsubscribed", "task_id": task_id}
                         )
 
                 elif msg.type == WSMessageType.PING:
@@ -158,9 +210,29 @@ async def stream_task(websocket: WebSocket, task_id: str):
 
     try:
         # Wait for the task request
-        data = await websocket.receive_json()
-        request_text = data.get("request", "")
-        session_id = data.get("session_id") or str(uuid.uuid4())
+        raw = await websocket.receive_text()
+        if len(raw) > MAX_WS_MESSAGE_SIZE:
+            await websocket.send_json(
+                WebSocketMessage.error(
+                    f"Message too large (max {MAX_WS_MESSAGE_SIZE} bytes)"
+                ).model_dump()
+            )
+            await websocket.close()
+            return
+
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            await websocket.send_json(
+                WebSocketMessage.error("Invalid JSON").model_dump()
+            )
+            await websocket.close()
+            return
+
+        request_text = _sanitize_ws_string(data.get("request", ""))
+        session_id = _sanitize_ws_string(
+            data.get("session_id") or str(uuid.uuid4()), MAX_TASK_ID_LENGTH
+        )
 
         if not request_text:
             await websocket.send_json(
@@ -169,7 +241,7 @@ async def stream_task(websocket: WebSocket, task_id: str):
             await websocket.close()
             return
 
-        add_message(session_id, "user", request_text)
+        await add_message(session_id, "user", request_text)
 
         # Create task
         task = task_manager.create_task(request_text, session_id)
@@ -225,7 +297,7 @@ async def stream_task(websocket: WebSocket, task_id: str):
             except TimeoutError:
                 return False
 
-        history = get_history(session_id)
+        history = await get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
 
         # Create steering queue for mid-task corrections
@@ -248,7 +320,9 @@ async def stream_task(websocket: WebSocket, task_id: str):
                     msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.5)
                     msg_type = msg.get("type", "")
                     if msg_type == "steer":
-                        steering_text = msg.get("text", "")
+                        steering_text = _sanitize_ws_string(
+                            msg.get("text", "")
+                        )
                         if steering_text:
                             await steering_queue.put(steering_text)
                             await websocket.send_json(
@@ -283,7 +357,7 @@ async def stream_task(websocket: WebSocket, task_id: str):
             task_manager.update_state(task.id, TMState.FAILED, state.error)
 
         if state.final_answer:
-            add_message(session_id, "assistant", state.final_answer)
+            await add_message(session_id, "assistant", state.final_answer)
 
             # Stream the final response token by token for a nice effect
             await websocket.send_json(
@@ -347,15 +421,37 @@ async def stream_chat(websocket: WebSocket):
 
     try:
         while True:
-            data = await websocket.receive_json()
-            message = data.get("message", "")
-            session_id = data.get("session_id", session_id)
+            raw = await websocket.receive_text()
+            if len(raw) > MAX_WS_MESSAGE_SIZE:
+                await websocket.send_json(
+                    {"type": "error", "message": f"Message too large (max {MAX_WS_MESSAGE_SIZE} bytes)"}
+                )
+                continue
+
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                await websocket.send_json(
+                    {"type": "error", "message": "Invalid JSON"}
+                )
+                continue
+
+            if not isinstance(data, dict):
+                await websocket.send_json(
+                    {"type": "error", "message": "Message must be a JSON object"}
+                )
+                continue
+
+            message = _sanitize_ws_string(data.get("message", ""))
+            session_id = _sanitize_ws_string(
+                data.get("session_id", session_id), MAX_TASK_ID_LENGTH
+            )
 
             if not message:
                 continue
 
-            add_message(session_id, "user", message)
-            history = get_history(session_id)
+            await add_message(session_id, "user", message)
+            history = await get_history(session_id)
             messages = [{"role": m.role, "content": m.content} for m in history]
 
             # Start streaming
@@ -385,7 +481,7 @@ async def stream_chat(websocket: WebSocket):
                     }
                 )
 
-                add_message(session_id, "assistant", full_response)
+                await add_message(session_id, "assistant", full_response)
 
             except LLMError as e:
                 await websocket.send_json(

@@ -50,7 +50,7 @@ async def run_task(
     from agent.orchestrator.react_agent import ReActAgent
 
     session_id = request.session_id or str(uuid.uuid4())
-    add_message(session_id, "user", request.request)
+    await add_message(session_id, "user", request.request)
 
     # Create task
     task = task_manager.create_task(request.request, session_id)
@@ -70,7 +70,7 @@ async def run_task(
         )
 
     try:
-        history = get_history(session_id)
+        history = await get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
 
         # For server mode, confirmations are handled via WebSocket
@@ -125,7 +125,7 @@ async def run_task(
             task_manager.update_state(task.id, TMState.FAILED, state.error)
 
         if state.final_answer:
-            add_message(session_id, "assistant", state.final_answer)
+            await add_message(session_id, "assistant", state.final_answer)
 
         await ws_manager.broadcast(
             task.id,

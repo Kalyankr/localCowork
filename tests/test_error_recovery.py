@@ -163,21 +163,23 @@ class TestRecoveryIntegration:
         ]
 
         # Mock shell execution - first fails, second succeeds
-        with patch("subprocess.run") as mock_run:
-            # First command fails
-            fail_result = MagicMock()
-            fail_result.returncode = 127
-            fail_result.stdout = b""
-            fail_result.stderr = b"command not found"
+        fail_proc = AsyncMock()
+        fail_proc.communicate = AsyncMock(
+            return_value=(b"", b"command not found")
+        )
+        fail_proc.returncode = 127
+        fail_proc.kill = MagicMock()
+        fail_proc.wait = AsyncMock()
 
-            # Recovery command succeeds
-            success_result = MagicMock()
-            success_result.returncode = 0
-            success_result.stdout = b"success"
-            success_result.stderr = b""
+        success_proc = AsyncMock()
+        success_proc.communicate = AsyncMock(
+            return_value=(b"success", b"")
+        )
+        success_proc.returncode = 0
+        success_proc.kill = MagicMock()
+        success_proc.wait = AsyncMock()
 
-            mock_run.side_effect = [fail_result, success_result]
-
+        with patch("asyncio.create_subprocess_shell", side_effect=[fail_proc, success_proc]):
             state = await agent.run("Run a command")
 
             # Should have attempted recovery

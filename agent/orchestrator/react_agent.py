@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import platform
-import subprocess
 from typing import Any
 
 from agent.config import settings
@@ -942,25 +941,38 @@ class ReActAgent:
                 command = command.replace("~/", os.path.expanduser("~") + "/")
 
                 try:
-                    proc_result = subprocess.run(
+                    proc = await asyncio.create_subprocess_shell(
                         command,
-                        shell=True,
-                        capture_output=True,
-                        timeout=settings.shell_timeout,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
                         cwd=cwd,
                         env={**os.environ, "HOME": os.path.expanduser("~")},
                     )
 
-                    output = proc_result.stdout.decode(errors="replace")
-                    stderr = proc_result.stderr.decode(errors="replace")
+                    try:
+                        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                            proc.communicate(),
+                            timeout=settings.shell_timeout,
+                        )
+                    except TimeoutError:
+                        proc.kill()
+                        await proc.wait()
+                        return StepResult(
+                            step_id="shell",
+                            status="error",
+                            error=f"Command timed out after {settings.shell_timeout} seconds",
+                        )
+
+                    output = stdout_bytes.decode(errors="replace")
+                    stderr = stderr_bytes.decode(errors="replace")
 
                     # Non-zero exit isn't always an error (e.g., grep no match)
                     # Return both stdout and stderr for context
-                    if proc_result.returncode != 0:
+                    if proc.returncode != 0:
                         raw_error = (
-                            f"Exit {proc_result.returncode}: {stderr}"
+                            f"Exit {proc.returncode}: {stderr}"
                             if stderr
-                            else f"Exit {proc_result.returncode}"
+                            else f"Exit {proc.returncode}"
                         )
                         return StepResult(
                             step_id="shell",
@@ -974,12 +986,6 @@ class ReActAgent:
                         step_id="shell",
                         status="success",
                         output=output.strip() or "(no output)",
-                    )
-                except subprocess.TimeoutExpired:
-                    return StepResult(
-                        step_id="shell",
-                        status="error",
-                        error="Command timed out after 2 minutes",
                     )
                 except Exception as e:
                     return StepResult(
