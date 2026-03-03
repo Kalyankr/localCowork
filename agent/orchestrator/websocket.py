@@ -7,6 +7,7 @@ This module contains:
 
 import asyncio
 import contextlib
+import json
 import logging
 import uuid
 from collections import defaultdict
@@ -15,20 +16,18 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-import json
-
 from agent.config import settings
-
-# --- WebSocket input sanitization constants ---
-MAX_WS_MESSAGE_SIZE = 65_536  # 64 KB max per message
-MAX_WS_TEXT_FIELD = 4_096  # 4 KB max for text fields (request, steer text, etc.)
-MAX_TASK_ID_LENGTH = 128  # UUIDs are 36 chars; generous upper bound
 from agent.llm.client import LLMError, call_llm_chat_stream_async
 from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.models import WebSocketMessage, WSMessageType
 from agent.orchestrator.react_agent import ReActAgent
 from agent.orchestrator.session import add_message, get_history
 from agent.orchestrator.task_manager import TaskState as TMState
+
+# --- WebSocket input sanitization constants ---
+MAX_WS_MESSAGE_SIZE = 65_536  # 64 KB max per message
+MAX_WS_TEXT_FIELD = 4_096  # 4 KB max for text fields (request, steer text, etc.)
+MAX_TASK_ID_LENGTH = 128  # UUIDs are 36 chars; generous upper bound
 
 logger = logging.getLogger(__name__)
 
@@ -320,9 +319,7 @@ async def stream_task(websocket: WebSocket, task_id: str):
                     msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.5)
                     msg_type = msg.get("type", "")
                     if msg_type == "steer":
-                        steering_text = _sanitize_ws_string(
-                            msg.get("text", "")
-                        )
+                        steering_text = _sanitize_ws_string(msg.get("text", ""))
                         if steering_text:
                             await steering_queue.put(steering_text)
                             await websocket.send_json(
@@ -424,16 +421,17 @@ async def stream_chat(websocket: WebSocket):
             raw = await websocket.receive_text()
             if len(raw) > MAX_WS_MESSAGE_SIZE:
                 await websocket.send_json(
-                    {"type": "error", "message": f"Message too large (max {MAX_WS_MESSAGE_SIZE} bytes)"}
+                    {
+                        "type": "error",
+                        "message": f"Message too large (max {MAX_WS_MESSAGE_SIZE} bytes)",
+                    }
                 )
                 continue
 
             try:
                 data = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
-                await websocket.send_json(
-                    {"type": "error", "message": "Invalid JSON"}
-                )
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
                 continue
 
             if not isinstance(data, dict):
