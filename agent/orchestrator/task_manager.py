@@ -2,7 +2,6 @@
 
 import contextlib
 import json
-import logging
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -10,11 +9,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, Field
 
 from agent.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TaskState(str, Enum):
@@ -112,9 +112,9 @@ class TaskManager:
                     for task_data in data.get("tasks", []):
                         task = Task(**task_data)
                         self._tasks[task.id] = task
-                logger.info(f"Loaded {len(self._tasks)} tasks from history")
+                logger.info("task_history_loaded", count=len(self._tasks))
             except Exception as e:
-                logger.warning(f"Failed to load task history: {e}")
+                logger.warning("task_history_load_failed", error=str(e))
 
     def _save_history(self):
         """Save task history to disk."""
@@ -135,7 +135,7 @@ class TaskManager:
             with open(self.history_file, "w") as f:
                 json.dump({"tasks": tasks_to_save}, f, default=str, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save task history: {e}")
+            logger.error("task_history_save_failed", error=str(e))
 
     def create_task(self, request: str, session_id: str | None = None) -> Task:
         """Create a new task and set up its workspace."""
@@ -151,7 +151,7 @@ class TaskManager:
         self._tasks[task.id] = task
         self._emit_event(task, "task_created")
 
-        logger.info(f"Created task {task.id}: {request[:50]}...")
+        logger.info("task_created", task_id=task.id, request=request[:50])
         return task
 
     def get_task(self, task_id: str) -> Task | None:
@@ -194,7 +194,7 @@ class TaskManager:
         """Update task state and emit event."""
         task = self._tasks.get(task_id)
         if not task:
-            logger.warning(f"Task {task_id} not found")
+            logger.warning("task_not_found", task_id=task_id)
             return
 
         old_state = task.state
@@ -222,7 +222,12 @@ class TaskManager:
         }:
             self._save_history()
 
-        logger.info(f"Task {task_id}: {old_state.value} -> {new_state.value}")
+        logger.info(
+            "task_state_change",
+            task_id=task_id,
+            old_state=old_state.value,
+            new_state=new_state.value,
+        )
 
     def set_plan(self, task_id: str, plan: dict[str, Any]):
         """Set the task's plan after generation."""
@@ -340,14 +345,14 @@ class TaskManager:
             try:
                 callback(event)
             except Exception as e:
-                logger.error(f"Event callback error: {e}")
+                logger.error("event_callback_error", error=str(e))
 
         # Notify global subscribers
         for callback in self._global_subscribers:
             try:
                 callback(event)
             except Exception as e:
-                logger.error(f"Global event callback error: {e}")
+                logger.error("global_event_callback_error", error=str(e))
 
     def get_workspace_path(self, task_id: str) -> Path | None:
         """Get the workspace path for a task."""
@@ -386,9 +391,9 @@ class TaskManager:
                         import shutil
 
                         shutil.rmtree(workspace)
-                        logger.info(f"Cleaned up workspace for task {task.id}")
+                        logger.info("workspace_cleaned", task_id=task.id)
                     except Exception as e:
-                        logger.error(f"Failed to clean workspace {task.id}: {e}")
+                        logger.error("workspace_cleanup_failed", task_id=task.id, error=str(e))
 
 
 # Singleton instance

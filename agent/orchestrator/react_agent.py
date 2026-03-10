@@ -12,10 +12,11 @@ allowing for dynamic adaptation and error recovery.
 
 import asyncio
 import json
-import logging
 import os
 import platform
 from typing import Any
+
+import structlog
 
 from agent.config import settings
 from agent.llm.client import call_llm_json_async
@@ -53,7 +54,7 @@ from agent.safety import (
 from agent.sandbox.sandbox_runner import Sandbox
 from agent.web import fetch_webpage, web_search
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Maximum iterations to prevent infinite loops
 MAX_ITERATIONS = 15
@@ -189,7 +190,7 @@ class ReActAgent:
             try:
                 steering = self.steering_queue.get_nowait()
                 self._steering_inputs.append(steering)
-                logger.info(f"Steering received: {steering[:50]}...")
+                logger.info("steering_received", text=steering[:50])
             except asyncio.QueueEmpty:
                 break
 
@@ -248,11 +249,11 @@ class ReActAgent:
             if len(independent) < 2:
                 return False, []
 
-            logger.info(f"Task decomposed into {len(independent)} parallel subtasks")
+            logger.info("task_decomposed", subtask_count=len(independent))
             return True, independent
 
         except Exception as e:
-            logger.warning(f"Task decomposition failed: {e}")
+            logger.warning("task_decomposition_failed", error=str(e))
             return False, []
 
     async def _run_subtask(
@@ -269,7 +270,7 @@ class ReActAgent:
         Returns:
             Dict with subtask result
         """
-        logger.info(f"Sub-agent starting: {subtask.description}")
+        logger.info("sub_agent_start", subtask=subtask.description)
 
         # Build context-aware conversation history for sub-agent
         sub_agent_context = []
@@ -328,7 +329,7 @@ class ReActAgent:
                 "steps_count": len(state.steps),
             }
         except Exception as e:
-            logger.error(f"Sub-agent failed: {e}")
+            logger.error("sub_agent_failed", subtask_id=subtask.id, error=str(e))
             return {
                 "id": subtask.id,
                 "description": subtask.description,
@@ -415,7 +416,7 @@ class ReActAgent:
             response = await call_llm_json_async(prompt)
             return response.get("summary", "Subtasks completed. See details above.")
         except Exception as e:
-            logger.warning(f"Failed to merge subtask results: {e}")
+            logger.warning("subtask_merge_failed", error=str(e))
             # Fallback: simple concatenation
             return "\n".join(
                 f"- {r['description']}: {r['result'] or r['error']}" for r in results
@@ -441,7 +442,7 @@ class ReActAgent:
             should_parallelize, subtasks = await self._should_decompose(goal)
 
             if should_parallelize and subtasks:
-                logger.info(f"Running {len(subtasks)} parallel sub-agents")
+                logger.info("parallel_agents_start", count=len(subtasks))
 
                 # Run subtasks in parallel with goal context
                 results = await self._run_parallel_subtasks(
@@ -473,7 +474,7 @@ class ReActAgent:
         # Initial observation - keep it minimal to avoid confusing the model
         initial_obs = Observation(source="initial", content="Ready to help.")
 
-        logger.info(f"ReAct agent starting: {goal}")
+        logger.info("react_agent_start", goal=goal[:100])
 
         for iteration in range(1, self.max_iterations + 1):
             # Check for steering input (mid-task user corrections)
@@ -595,7 +596,7 @@ class ReActAgent:
                     # Check for repeated similar commands
                     repeat_reason = self._is_repeated_command(action, state.steps)
                     if repeat_reason:
-                        logger.warning(f"Detected repeated command: {repeat_reason}")
+                        logger.warning("repeated_command", reason=repeat_reason)
                         state.status = "completed"
                         # Generate context-aware completion message
                         state.final_answer = self._generate_stuck_message(
@@ -660,7 +661,8 @@ class ReActAgent:
                                         state.context[key] = recovery_result.output
                                         consecutive_failures = 0
                                         logger.info(
-                                            f"Recovery successful on attempt {recovery_attempts + 1}"
+                                            "recovery_successful",
+                                            attempt=recovery_attempts + 1,
                                         )
                                 elif user_msg:
                                     # Recovery gave up with a message
@@ -694,7 +696,7 @@ class ReActAgent:
                     )
 
             except Exception as e:
-                logger.error(f"Error in iteration {iteration}: {e}")
+                logger.error("iteration_error", iteration=iteration, error=str(e))
                 state.steps.append(
                     AgentStep(
                         iteration=iteration,
@@ -713,7 +715,7 @@ class ReActAgent:
             state.status = "max_iterations"
             state.error = f"Reached maximum iterations ({self.max_iterations})"
 
-        logger.info(f"ReAct agent finished: {state.status}")
+        logger.info("react_agent_finished", status=state.status)
         return state
 
     async def _think(
@@ -782,7 +784,7 @@ class ReActAgent:
             return thought, action, direct_response
 
         except Exception as e:
-            logger.warning(f"Failed to parse LLM response: {e}")
+            logger.warning("llm_parse_failed", error=str(e))
             return (
                 Thought(reasoning=f"Error parsing response: {e}", confidence=0),
                 None,
@@ -1071,7 +1073,7 @@ class ReActAgent:
                 "suggestions": response.get("suggestions", []),
             }
         except Exception as e:
-            logger.warning(f"Reflection failed: {e}")
+            logger.warning("reflection_failed", error=str(e))
             # Default to NOT verified if reflection fails - be conservative
             return {
                 "verified": False,
@@ -1251,12 +1253,15 @@ class ReActAgent:
                     description=response.get("new_approach", "Recovery attempt"),
                 )
                 logger.info(
-                    f"Recovery attempt {attempt}: {new_action.tool} - {new_action.description}"
+                    "recovery_attempt",
+                    attempt=attempt,
+                    tool=new_action.tool,
+                    description=new_action.description,
                 )
                 return new_action, None
 
         except Exception as e:
-            logger.error(f"Error during recovery attempt: {e}")
+            logger.error("recovery_error", error=str(e))
 
         return None, f"Recovery failed: {error}"
 
