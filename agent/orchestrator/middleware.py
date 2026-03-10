@@ -6,18 +6,18 @@ This module contains:
 - Exception handlers
 """
 
-import logging
 import secrets
 import time
 from collections import defaultdict
 
+import structlog
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 
 from agent.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # =============================================================================

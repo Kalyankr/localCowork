@@ -8,11 +8,11 @@ This module contains:
 import asyncio
 import contextlib
 import json
-import logging
 import uuid
 from collections import defaultdict
 from typing import Any
 
+import structlog
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -29,7 +29,7 @@ MAX_WS_MESSAGE_SIZE = 65_536  # 64 KB max per message
 MAX_WS_TEXT_FIELD = 4_096  # 4 KB max for text fields (request, steer text, etc.)
 MAX_TASK_ID_LENGTH = 128  # UUIDs are 36 chars; generous upper bound
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Shared resources
 sandbox = get_sandbox()
@@ -388,13 +388,13 @@ async def stream_task(websocket: WebSocket, task_id: str):
         )
 
     except WebSocketDisconnect:
-        logger.info(f"Stream client disconnected for task {task_id}")
+        logger.info("stream_client_disconnected", task_id=task_id)
     except LLMError as e:
         await websocket.send_json(
             WebSocketMessage.task_error(task_id, str(e)).model_dump()
         )
     except Exception as e:
-        logger.exception(f"Stream error for task {task_id}")
+        logger.exception("stream_error", task_id=task_id)
         with contextlib.suppress(Exception):
             await websocket.send_json(WebSocketMessage.error(str(e)).model_dump())
     finally:
@@ -490,8 +490,8 @@ async def stream_chat(websocket: WebSocket):
                 )
 
     except WebSocketDisconnect:
-        logger.info("Chat stream client disconnected")
+        logger.info("chat_stream_client_disconnected", session_id=session_id)
     except Exception as e:
-        logger.exception("Chat stream error")
+        logger.exception("chat_stream_error")
         with contextlib.suppress(Exception):
             await websocket.send_json({"type": "error", "message": str(e)})

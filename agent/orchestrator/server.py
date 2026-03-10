@@ -4,7 +4,6 @@ All task execution uses the ReAct agent (shell + python).
 """
 
 import asyncio
-import logging
 import secrets
 import time
 import uuid
@@ -12,6 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import structlog
 from fastapi import (
     Depends,
     FastAPI,
@@ -40,7 +40,7 @@ from agent.orchestrator.models import (
 from agent.orchestrator.task_manager import TaskState as TMState
 from agent.version import __version__
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 app = FastAPI(
     title="LocalCowork API",
