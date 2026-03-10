@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     # Whether to require confirmation for paths outside allowed_paths
     require_path_confirmation: bool = True
 
+    # Logging Settings
+    json_logs: bool = False  # If True, output structured JSON logs
+
     # Task Management Settings
     workspace_dir: str = "~/.localcowork/workspaces"
     task_history_file: str = "~/.localcowork/task_history.json"
