@@ -5,14 +5,13 @@ Two ways to use:
 - `localcowork serve` - Web UI
 """
 
-import logging
 import warnings
 
 import typer
-from rich.logging import RichHandler
 
 from agent.cli.console import Icons, console
 from agent.config import settings
+from agent.logging import configure_logging
 from agent.version import __version__
 
 # Suppress Python deprecation warnings to keep CLI output clean
@@ -21,24 +20,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Configure logging with Rich handler for console-aware output
+# Configure structured logging with Rich handler for console-aware output
 # This integrates properly with Rich's Live display and prevents
 # log messages from corrupting the CLI spinner
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[
-        RichHandler(console=console, show_time=False, show_path=False, markup=True)
-    ],
-)
-
-# Silence noisy third-party loggers
-logging.getLogger("httpx").setLevel(logging.ERROR)
-logging.getLogger("httpcore").setLevel(logging.ERROR)
-logging.getLogger("ollama").setLevel(logging.ERROR)
-logging.getLogger("uvicorn").setLevel(logging.ERROR)
-logging.getLogger("asyncio").setLevel(logging.ERROR)
+configure_logging(rich_console=console, json_output=settings.json_logs)
 
 app = typer.Typer(
     name="localcowork",
@@ -78,8 +63,9 @@ def main(
         return
 
     if verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-        logging.getLogger("agent").setLevel(logging.DEBUG)
+        configure_logging(
+            verbose=True, rich_console=console, json_output=settings.json_logs
+        )
 
     from agent.cli.agent_loop import run_agent
 
