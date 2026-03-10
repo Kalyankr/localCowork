@@ -11,17 +11,17 @@ instead of raw HTTP requests. Benefits:
 
 import asyncio
 import json
-import logging
 import re
 from collections.abc import AsyncIterator
 from typing import Any
 
 import ollama
+import structlog
 from ollama import AsyncClient, RequestError, ResponseError
 
 from agent.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class LLMError(Exception):

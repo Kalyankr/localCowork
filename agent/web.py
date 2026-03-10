@@ -4,14 +4,14 @@ This module provides web search and content fetching capabilities
 without requiring browser automation.
 """
 
-import logging
 from typing import Any
 
 import requests
+import structlog
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Request timeout in seconds
 REQUEST_TIMEOUT = 15

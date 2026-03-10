@@ -7,13 +7,14 @@ This module provides security functions to prevent:
 - Invalid input data
 """
 
-import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class SecurityError(Exception):

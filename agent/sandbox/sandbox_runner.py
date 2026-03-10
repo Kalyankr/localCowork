@@ -1,13 +1,14 @@
 import asyncio
-import logging
 import os
 import subprocess
 import tempfile
 from pathlib import Path
 
+import structlog
+
 from agent.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class Sandbox:

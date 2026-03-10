@@ -6,14 +6,15 @@ the agent only accesses files/folders the user has explicitly allowed.
 """
 
 import fnmatch
-import logging
 import re
 from enum import Enum
 from pathlib import Path
 
+import structlog
+
 from agent.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class AccessLevel(Enum):
