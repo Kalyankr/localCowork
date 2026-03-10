@@ -393,7 +393,9 @@ class TaskManager:
                         shutil.rmtree(workspace)
                         logger.info("workspace_cleaned", task_id=task.id)
                     except Exception as e:
-                        logger.error("workspace_cleanup_failed", task_id=task.id, error=str(e))
+                        logger.error(
+                            "workspace_cleanup_failed", task_id=task.id, error=str(e)
+                        )
 
 
 # Singleton instance

@@ -26,6 +26,7 @@ def configure_logging(
         rich_console: Rich Console instance for RichHandler (CLI mode).
     """
     # Choose renderer based on output mode
+    renderer: structlog.types.Processor
     if json_output:
         renderer = structlog.processors.JSONRenderer()
     else:
@@ -40,6 +41,7 @@ def configure_logging(
     )
 
     # Set up the handler
+    handler: logging.Handler
     if rich_console is not None and not json_output:
         from rich.logging import RichHandler
 
