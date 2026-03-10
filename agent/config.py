@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # Task Management Settings
     workspace_dir: str = "~/.localcowork/workspaces"
     task_history_file: str = "~/.localcowork/task_history.json"
+    db_file: str = "~/.localcowork/localcowork.db"  # SQLite database path
     require_approval: bool = (
         True  # If True, plans require user approval before execution
     )
@@ -114,6 +115,13 @@ class Settings(BaseSettings):
         from pathlib import Path
 
         return str(Path(self.task_history_file).expanduser())
+
+    @property
+    def db_path(self) -> str:
+        """Expand SQLite database file path."""
+        from pathlib import Path
+
+        return str(Path(self.db_file).expanduser())
 
 
 def get_settings() -> Settings:
