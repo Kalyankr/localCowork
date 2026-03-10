@@ -4,22 +4,23 @@ This module contains all HTTP endpoints for task management and execution.
 """
 
 import asyncio
-import logging
 import uuid
 from pathlib import Path
 
+import structlog
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from agent.config import settings
 from agent.llm.client import LLMError
+from agent.logging import bind_task_context, clear_task_context
 from agent.orchestrator.deps import get_sandbox, get_task_manager
 from agent.orchestrator.middleware import check_rate_limit, verify_api_key
 from agent.orchestrator.models import TaskDetail, TaskRequest, TaskState, TaskSummary
 from agent.orchestrator.session import add_message, get_history
 from agent.orchestrator.task_manager import TaskState as TMState
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Shared resources
 sandbox = get_sandbox()
@@ -55,6 +56,12 @@ async def run_task(
     # Create task
     task = task_manager.create_task(request.request, session_id)
     task_manager.update_state(task.id, TMState.EXECUTING)
+
+    # Bind correlation IDs for structured logging
+    bind_task_context(task_id=task.id, session_id=session_id)
+
+    # Bind correlation IDs for structured logging
+    bind_task_context(task_id=task.id, session_id=session_id)
 
     async def on_progress(iteration: int, status: str, thought: str, action: str):
         await ws_manager.broadcast(
@@ -152,6 +159,8 @@ async def run_task(
         logger.exception("Agent failed")
         task_manager.update_state(task.id, TMState.FAILED, str(e))
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        clear_task_context()
 
 
 async def list_tasks(
