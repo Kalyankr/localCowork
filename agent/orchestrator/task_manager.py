@@ -88,8 +88,9 @@ class TaskManager:
     ):
         self.history_file = history_file or Path(settings.history_path)
         self.workspace_root = workspace_root or Path(settings.workspace_path)
+        self._db_path = settings.db_path
 
-        # In-memory task storage
+        # In-memory task cache (loaded from SQLite on init)
         self._tasks: dict[str, Task] = {}
 
         # Event subscribers
@@ -100,11 +101,37 @@ class TaskManager:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Load history on startup
-        self._load_history()
+        # Load from SQLite synchronously (startup)
+        self._load_from_db()
 
-    def _load_history(self):
-        """Load task history from disk."""
+    def _load_from_db(self):
+        """Load task history from SQLite database."""
+        from agent.orchestrator.database import get_sync_connection
+
+        try:
+            conn = get_sync_connection(self._db_path)
+            cursor = conn.execute("SELECT * FROM tasks")
+            rows = cursor.fetchall()
+            for row in rows:
+                data = dict(row)
+                # Deserialize JSON fields
+                if data.get("plan"):
+                    data["plan"] = json.loads(data["plan"])
+                if data.get("step_results"):
+                    data["step_results"] = json.loads(data["step_results"])
+                else:
+                    data["step_results"] = {}
+                task = Task(**data)
+                self._tasks[task.id] = task
+            conn.close()
+            logger.info("task_history_loaded", count=len(self._tasks), source="sqlite")
+        except Exception as e:
+            logger.warning("task_history_load_failed", error=str(e))
+            # Fall back to JSON if DB fails (migration path)
+            self._load_history_json()
+
+    def _load_history_json(self):
+        """Legacy: load task history from JSON file (migration fallback)."""
         if self.history_file.exists():
             try:
                 with open(self.history_file) as f:
@@ -112,30 +139,45 @@ class TaskManager:
                     for task_data in data.get("tasks", []):
                         task = Task(**task_data)
                         self._tasks[task.id] = task
-                logger.info("task_history_loaded", count=len(self._tasks))
+                logger.info(
+                    "task_history_loaded",
+                    count=len(self._tasks),
+                    source="json_fallback",
+                )
             except Exception as e:
-                logger.warning("task_history_load_failed", error=str(e))
+                logger.warning("json_history_load_failed", error=str(e))
 
-    def _save_history(self):
-        """Save task history to disk."""
+    def _persist_task(self, task: Task):
+        """Persist a single task to SQLite synchronously."""
+        from agent.orchestrator.database import get_sync_connection
+
         try:
-            # Only save completed/failed tasks (not transient ones)
-            completed_states = {
-                TaskState.COMPLETED,
-                TaskState.FAILED,
-                TaskState.REJECTED,
-                TaskState.CANCELLED,
-            }
-            tasks_to_save = [
-                t.model_dump(mode="json")
-                for t in self._tasks.values()
-                if t.state in completed_states
-            ]
-
-            with open(self.history_file, "w") as f:
-                json.dump({"tasks": tasks_to_save}, f, default=str, indent=2)
+            data = task.model_dump(mode="json")
+            conn = get_sync_connection(self._db_path)
+            conn.execute(
+                """INSERT OR REPLACE INTO tasks
+                   (id, request, session_id, state, created_at, updated_at,
+                    plan, step_results, current_step, summary, error, workspace_path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    data["id"],
+                    data["request"],
+                    data.get("session_id"),
+                    data["state"],
+                    data["created_at"],
+                    data["updated_at"],
+                    json.dumps(data.get("plan")) if data.get("plan") else None,
+                    json.dumps(data.get("step_results", {})),
+                    data.get("current_step"),
+                    data.get("summary"),
+                    data.get("error"),
+                    data.get("workspace_path"),
+                ),
+            )
+            conn.commit()
+            conn.close()
         except Exception as e:
-            logger.error("task_history_save_failed", error=str(e))
+            logger.error("task_persist_failed", task_id=task.id, error=str(e))
 
     def create_task(self, request: str, session_id: str | None = None) -> Task:
         """Create a new task and set up its workspace."""
@@ -149,6 +191,7 @@ class TaskManager:
         task.workspace_path = str(workspace)
 
         self._tasks[task.id] = task
+        self._persist_task(task)
         self._emit_event(task, "task_created")
 
         logger.info("task_created", task_id=task.id, request=request[:50])
@@ -213,14 +256,8 @@ class TaskManager:
             },
         )
 
-        # Persist on terminal states
-        if new_state in {
-            TaskState.COMPLETED,
-            TaskState.FAILED,
-            TaskState.REJECTED,
-            TaskState.CANCELLED,
-        }:
-            self._save_history()
+        # Persist state change
+        self._persist_task(task)
 
         logger.info(
             "task_state_change",
@@ -237,6 +274,7 @@ class TaskManager:
 
         task.plan = plan
         task.touch()
+        self._persist_task(task)
 
         self._emit_event(task, "plan_ready", {"plan": plan})
 
@@ -255,6 +293,7 @@ class TaskManager:
 
         task.current_step = step_id
         task.touch()
+        self._persist_task(task)
 
         self._emit_event(
             task,
@@ -280,6 +319,7 @@ class TaskManager:
 
         task.step_results[step_id] = result
         task.touch()
+        self._persist_task(task)
 
         self._emit_event(
             task,
@@ -298,6 +338,7 @@ class TaskManager:
 
         task.summary = summary
         task.touch()
+        self._persist_task(task)
 
         self._emit_event(task, "summary", {"summary": summary})
 
