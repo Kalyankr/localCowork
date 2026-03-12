@@ -23,6 +23,7 @@ dependencies = [
     "pandas>=3.0.0",
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
+    "tiktoken>=0.8.0",
 ]
 
 [project.optional-dependencies]
