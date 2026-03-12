@@ -11,6 +11,8 @@ import structlog
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 
+from agent.tokens import truncate_to_tokens
+
 logger = structlog.get_logger(__name__)
 
 # Request timeout in seconds
@@ -98,9 +100,8 @@ def fetch_webpage(url: str, extract_text: bool = True) -> dict[str, Any]:
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             content = "\n".join(lines)
 
-            # Truncate if too long (keep first 8000 chars for context window)
-            if len(content) > 8000:
-                content = content[:8000] + "\n\n[Content truncated...]"
+            # Truncate if too long (keep first ~2000 tokens for context window)
+            content = truncate_to_tokens(content, 2000)
         else:
             content = response.text
 
