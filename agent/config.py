@@ -62,11 +62,11 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 60
     rate_limit_window: int = 60  # seconds
 
-    # Context Limits (for LLM prompts)
-    context_limit_short: int = 2000
-    context_limit_medium: int = 3000
-    context_limit_long: int = 5000
-    output_limit: int = 50000
+    # Context Limits (token counts for LLM prompts)
+    context_limit_short: int = 500
+    context_limit_medium: int = 750
+    context_limit_long: int = 1250
+    output_limit: int = 12500
     shell_timeout: int = 600  # 10 minutes for shell commands
 
     # Execution Settings
