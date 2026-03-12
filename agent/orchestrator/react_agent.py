@@ -52,6 +52,7 @@ from agent.safety import (
     get_affected_paths,
 )
 from agent.sandbox.sandbox_runner import Sandbox
+from agent.tokens import truncate_to_tokens
 from agent.web import fetch_webpage, web_search
 
 logger = structlog.get_logger(__name__)
@@ -283,7 +284,10 @@ class ReActAgent:
             )
         # Include relevant parent context as system message
         if parent_context:
-            context_summary = json.dumps(parent_context, indent=2, default=str)[:2000]
+            context_summary = truncate_to_tokens(
+                json.dumps(parent_context, indent=2, default=str),
+                settings.context_limit_short,
+            )
             sub_agent_context.append(
                 {
                     "role": "system",
@@ -315,7 +319,7 @@ class ReActAgent:
                         and step.result.status == "success"
                         and step.result.output
                     ):
-                        result_text = str(step.result.output)[:1000]
+                        result_text = truncate_to_tokens(str(step.result.output), 250)
                         break
                 if not result_text:
                     result_text = f"Subtask ran {len(state.steps)} steps but produced no explicit result."
@@ -749,9 +753,10 @@ class ReActAgent:
             conversation_history=conv_history,
             history=history,
             observation=self._format_observation(observation),
-            context=json.dumps(state.context, indent=2, default=str)[
-                : settings.context_limit_short
-            ],  # Limit context size
+            context=truncate_to_tokens(
+                json.dumps(state.context, indent=2, default=str),
+                settings.context_limit_short,
+            ),
             cwd=os.getcwd(),
             platform=f"{platform.system()} {platform.release()}",
         )
@@ -1057,9 +1062,10 @@ class ReActAgent:
         prompt = REFLECTION_PROMPT.format(
             goal=state.goal,
             steps_summary=self._summarize_steps(state),
-            final_context=json.dumps(state.context, indent=2, default=str)[
-                : settings.context_limit_medium
-            ],
+            final_context=truncate_to_tokens(
+                json.dumps(state.context, indent=2, default=str),
+                settings.context_limit_medium,
+            ),
         )
 
         try:
@@ -1124,7 +1130,7 @@ class ReActAgent:
             content = msg.get("content", "")
             # Truncate long messages but keep more context
             if len(content) > 500:
-                content = content[:500] + "..."
+                content = truncate_to_tokens(content, 125)
             prefix = "User:" if role == "user" else "Assistant:"
             lines.append(f"{prefix} {content}")
 
@@ -1146,8 +1152,10 @@ class ReActAgent:
         if result.status == "success":
             output = result.output
             if isinstance(output, (dict, list)):
-                return json.dumps(output, indent=2, default=str)[:1000]
-            return str(output)[:1000]
+                return truncate_to_tokens(
+                    json.dumps(output, indent=2, default=str), 250
+                )
+            return truncate_to_tokens(str(output), 250)
         else:
             # Return sanitized error message
             return f"ERROR: {result.error}"  # Already sanitized by _sanitize_error
