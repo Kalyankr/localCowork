@@ -9,7 +9,10 @@ import shutil
 import sys
 import time
 
+from rich import box
 from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from agent.cli.console import (
@@ -80,9 +83,9 @@ def run_agent(model_override: str = None):
 
 def _interactive_loop(model: str):
     """Interactive agent loop with conversation memory."""
-    console.clear()
-    # Add top margin so content isn't at very top of terminal
-    print_padding(1)
+    # Clear screen and move cursor to top without leaving whitespace
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
     _show_welcome(model)
 
     # Conversation history for context
@@ -104,8 +107,8 @@ def _interactive_loop(model: str):
                 continue
 
             if user_input.lower() == "/clear":
-                console.clear()
-                print_padding(1)  # Top margin
+                sys.stdout.write("\033[2J\033[H")
+                sys.stdout.flush()
                 _show_welcome(model)
                 conversation_history.clear()  # Also clear history
                 continue
@@ -125,8 +128,28 @@ def _interactive_loop(model: str):
                     console.print(
                         f"  [green]✓[/green] Switched to model: [cyan]{model}[/cyan]"
                     )
-                    console.print()
                 continue
+
+            # Catch unknown slash commands
+            if user_input.startswith("/"):
+                known = [
+                    "/quit",
+                    "/q",
+                    "/exit",
+                    "/help",
+                    "/h",
+                    "/clear",
+                    "/status",
+                    "/history",
+                    "/model",
+                ]
+                cmd = user_input.split()[0].lower()
+                if cmd not in known:
+                    console.print(
+                        f"  [yellow]⚠[/yellow] Unknown command: "
+                        f"[white]{cmd}[/white] — type [cyan]/help[/cyan] for commands"
+                    )
+                    continue
 
             result = _process_input_agentic(user_input, model, conversation_history)
 
@@ -139,12 +162,15 @@ def _interactive_loop(model: str):
                 if len(conversation_history) > max_history:
                     conversation_history = conversation_history[-max_history:]
 
+            # Visual separator between conversations
+            width = _get_width()
+            console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
+
         except KeyboardInterrupt:
             console.print()
             console.print(
                 "  [dim]Interrupted. Type [white]/quit[/white] to exit.[/dim]"
             )
-            print_padding(1)
         except EOFError:
             _show_goodbye()
             break
@@ -267,7 +293,7 @@ def _process_input_agentic(
         if iteration > 0 or steps:
             line.append("  ", style="dim")
             if steps:
-                for step in steps[-5:]:
+                for step in steps[-6:]:
                     _, _, step_status, _ = step
                     if step_status == "success":
                         line.append("●", style="green")
@@ -275,6 +301,7 @@ def _process_input_agentic(
                         line.append("●", style="red")
                     else:
                         line.append("○", style="dim")
+                line.append(f" Step {len(steps)}", style="dim")
 
         return line
 
@@ -329,56 +356,27 @@ def _process_input_agentic(
         """Prompt user for confirmation on dangerous operations."""
         from rich.prompt import Confirm
 
-        # Stop live display temporarily to show confirmation
-        width = _get_width()
-        inner_width = width - 8  # Account for "  ╭" and "╮" on edges
-        console.print()
-        console.print(f"  [red]╭{'─' * inner_width}╮[/red]")
-
-        # Header line with proper padding
-        header = "⚠ Confirmation Required"
-        header_padding = inner_width - len(header) - 2  # -2 for spaces around text
-        console.print(
-            f"  [red]│[/red] [bold red]{header}[/bold red]"
-            f"{' ' * header_padding}[red]│[/red]"
+        panel = Panel(
+            f"[dim]{message}[/dim]",
+            title="[bold red]⚠ Confirmation Required[/bold red]",
+            border_style="red",
+            box=box.HEAVY,
+            padding=(1, 2),
+            width=min(_get_width(), 60),
         )
-        console.print(f"  [red]│[/red]{' ' * inner_width}[red]│[/red]")
-
-        # Wrap message lines with proper right border
-        for line in message.split("\n"):
-            # Truncate if too long
-            max_line_len = inner_width - 4  # -4 for "  " padding on each side
-            if len(line) > max_line_len:
-                line = line[: max_line_len - 3] + "..."
-            # Pad to align right border
-            line_padding = inner_width - len(line) - 4
-            console.print(
-                f"  [red]│[/red]  [dim]{line}[/dim]{' ' * line_padding}  [red]│[/red]"
-            )
-
-        console.print(f"  [red]╰{'─' * inner_width}╯[/red]")
+        console.print(panel)
 
         try:
             result = Confirm.ask("  [bold]Proceed?[/bold]", default=False)
-            # Show user's decision clearly
-            console.print()
             if result:
-                console.print(
-                    "  [green]✓[/green] [bold green]Approved[/bold green] - "
-                    "Continuing with operation..."
-                )
+                console.print("  [green]✓[/green] Approved — continuing")
             else:
-                console.print(
-                    "  [red]✗[/red] [bold red]Denied[/bold red] - "
-                    "Operation cancelled by user"
-                )
+                console.print("  [red]✗[/red] Denied — operation cancelled")
             console.print()
             return result
         except (KeyboardInterrupt, EOFError):
             console.print()
-            console.print(
-                "  [red]✗[/red] [bold red]Cancelled[/bold red] - Operation interrupted"
-            )
+            console.print("  [red]✗[/red] Cancelled — operation interrupted")
             console.print()
             return False
 
@@ -460,62 +458,26 @@ def _process_input_agentic(
             response_text = _show_agent_result(state, model)
         elif state.status == "failed":
             console.print(f"  [red]✗ Failed after {format_duration(elapsed)}[/red]")
-            console.print()
-            console.print(f"  [red]╭{'─' * 50}╮[/red]")
-            console.print(
-                "  [red]│[/red] [bold red]Something went wrong[/bold red]"
-                + " " * 27
-                + "[red]│[/red]"
-            )
-            console.print(f"  [red]│[/red]{' ' * 50}[red]│[/red]")
             error_msg = state.error or "Unknown error"
-            # Truncate long errors
-            if len(error_msg) > 46:
-                error_msg = error_msg[:43] + "..."
-            padding = 48 - len(error_msg)
-            console.print(
-                f"  [red]│[/red] [dim]{error_msg}[/dim]"
-                + " " * padding
-                + "[red]│[/red]"
+            _show_status_box(
+                "red",
+                "Something went wrong",
+                [error_msg, "", "Please try again or rephrase your request"],
             )
-            console.print(f"  [red]│[/red]{' ' * 50}[red]│[/red]")
-            console.print(
-                "  [red]│[/red] [dim]Please try again or rephrase your request[/dim]"
-                + " " * 5
-                + "[red]│[/red]"
-            )
-            console.print(f"  [red]╰{'─' * 50}╯[/red]")
-            console.print()
             response_text = f"Failed: {state.error}"
         elif state.status == "max_iterations":
             console.print(
                 f"  [yellow]⚠ Stopped after {format_duration(elapsed)}[/yellow]"
             )
-            console.print()
-            console.print(f"  [yellow]╭{'─' * 50}╮[/yellow]")
-            console.print(
-                "  [yellow]│[/yellow] [bold yellow]Could not complete the task[/bold yellow]"
-                + " " * 20
-                + "[yellow]│[/yellow]"
+            _show_status_box(
+                "yellow",
+                "Could not complete the task",
+                [
+                    "Reached maximum attempts without success.",
+                    "Try breaking down your request into",
+                    "smaller, more specific tasks.",
+                ],
             )
-            console.print(f"  [yellow]│[/yellow]{' ' * 50}[yellow]│[/yellow]")
-            console.print(
-                "  [yellow]│[/yellow] [dim]Reached maximum attempts without success.[/dim]"
-                + " " * 5
-                + "[yellow]│[/yellow]"
-            )
-            console.print(
-                "  [yellow]│[/yellow] [dim]Try breaking down your request into[/dim]"
-                + " " * 10
-                + "[yellow]│[/yellow]"
-            )
-            console.print(
-                "  [yellow]│[/yellow] [dim]smaller, more specific tasks.[/dim]"
-                + " " * 17
-                + "[yellow]│[/yellow]"
-            )
-            console.print(f"  [yellow]╰{'─' * 50}╯[/yellow]")
-            console.print()
             if state.steps:
                 # Show what was accomplished
                 response_text = _show_agent_result(state, model)
@@ -524,21 +486,35 @@ def _process_input_agentic(
 
     except LLMError as e:
         print_error("AI Error", str(e))
-        console.print()  # Padding after error
         return None
     except Exception as e:
         import traceback
 
         traceback.print_exc()
         print_error("Error", str(e))
-        console.print()  # Padding after error
         return None
+
+
+def _show_status_box(color: str, title: str, lines: list[str]):
+    """Display a status box using Rich Panel for clean layout."""
+    body = "\n".join(line for line in lines if line)
+    panel = Panel(
+        f"[dim]{body}[/dim]",
+        title=f"[bold {color}]{title}[/bold {color}]",
+        border_style=color,
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=min(_get_width(), 60),
+    )
+    console.print(panel)
 
 
 def _show_execution_steps(steps: list):
     """Display detailed execution steps after task completion."""
-    console.print()
-    console.print("  [bold dim]Steps executed:[/bold dim]")
+    steps_tbl = Table(box=None, show_header=False, padding=(0, 1))
+    steps_tbl.add_column("icon", width=3)
+    steps_tbl.add_column("num", style="dim", width=8)
+    steps_tbl.add_column("detail")
 
     for i, step in enumerate(steps, 1):
         thought = step.thought
@@ -580,11 +556,20 @@ def _show_execution_steps(steps: list):
             else:
                 action_str = f"[dim]{action.tool}[/dim]"
 
-        console.print(f"    {icon} [dim]Step {i}:[/dim] {thought_preview}")
+        detail = thought_preview
         if action_str:
-            console.print(f"       {action_str}")
+            detail += f"\n       {action_str}"
+        steps_tbl.add_row(icon, f"Step {i}", detail)
 
-    console.print()
+    panel = Panel(
+        steps_tbl,
+        title="[bold white]Steps[/bold white]",
+        border_style="bright_black",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=min(_get_width(), 72),
+    )
+    console.print(panel)
 
 
 def _show_agent_result(state, model: str) -> str:
@@ -631,7 +616,7 @@ def _show_response(text: str, model: str):
     from rich.padding import Padding
 
     console.print()
-    console.print("  [bold cyan]◆[/bold cyan] [bold white]LocalCowork[/bold white]")
+    console.print("  [cyan]▍[/cyan] [bold]LocalCowork[/bold]")
     console.print()
 
     # Render as Markdown if the text contains markdown indicators
@@ -662,8 +647,7 @@ def _show_response(text: str, model: str):
     # Detect and display image file paths mentioned in the response
     _show_images_in_response(text)
 
-    # Add trailing padding for visual separation
-    print_padding(1)
+    console.print()
 
 
 import re as _re
@@ -691,26 +675,44 @@ def _show_images_in_response(text: str):
 
 
 def _show_welcome(model: str):
-    """Show welcome screen - compact with ASCII art."""
+    """Show welcome screen — clean, minimal, professional."""
     width = _get_width()
 
-    console.print()
-    console.print(
-        f"  [bold cyan]██╗[/bold cyan]  [bold white]LocalCowork[/bold white] [dim]v{__version__}[/dim]  [green]●[/green] [dim]{model}[/dim]"
+    # Build the welcome content
+    content = Text()
+    content.append("Your local AI coding assistant\n\n", style="dim")
+    content.append("Model  ", style="dim")
+    content.append(f"{model}\n", style="cyan")
+    content.append("Ready  ", style="dim")
+    content.append("●", style="green")
+    content.append(" Connected\n\n", style="dim")
+    content.append("Try: ", style="dim")
+    content.append("list files", style="white")
+    content.append(" · ", style="bright_black")
+    content.append("find large files", style="white")
+    content.append(" · ", style="bright_black")
+    content.append("explain this error\n", style="white")
+    content.append("Cmds: ", style="dim")
+    content.append("/help", style="cyan")
+    content.append("  ", style="dim")
+    content.append("/status", style="cyan")
+    content.append("  ", style="dim")
+    content.append("/clear", style="cyan")
+    content.append("  ", style="dim")
+    content.append("/model", style="cyan")
+    content.append("  ", style="dim")
+    content.append("/quit", style="cyan")
+
+    panel = Panel(
+        content,
+        title="[bold white]LocalCowork[/bold white]",
+        subtitle=f"[dim]v{__version__}[/dim]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=min(width, 64),
     )
-    console.print(
-        "  [bold cyan]███████╗[/bold cyan]  [dim]Your local AI coding assistant[/dim]"
-    )
-    console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
-    console.print(
-        "  [dim]Try:[/dim] [white]list files[/white] · [white]find large files[/white] · [white]explain this error[/white]"
-    )
-    console.print(
-        "  [dim]Commands:[/dim] [cyan]/help[/cyan] [cyan]/status[/cyan] [cyan]/clear[/cyan] [cyan]/model[/cyan] [cyan]/quit[/cyan]"
-    )
-    console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
-    # Bottom margin to keep content away from terminal edge
-    print_padding(1)
+    console.print(panel)
 
 
 def _get_input() -> str:
@@ -732,10 +734,7 @@ def _get_input() -> str:
         blue = "\033[34m"
         dim = "\033[2m"
         reset = "\033[0m"
-        prompt = (
-            f"  \001{blue}\002│\001{reset}\002 "
-            f"\001{dim}\002>\001{reset}\002 "
-        )
+        prompt = f"  \001{blue}\002│\001{reset}\002 \001{dim}\002>\001{reset}\002 "
 
         user_input = input(prompt)
 
@@ -750,8 +749,7 @@ def _get_input() -> str:
         if not user_input.strip():
             # Empty input — show empty box
             console.print(
-                f"  [blue]│[/blue] [dim]>[/dim] "
-                f"{' ' * (inner_width - 5)}[blue]│[/blue]"
+                f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
             )
         else:
             # Render text, wrapping if needed
@@ -770,12 +768,10 @@ def _get_input() -> str:
                     first_line = False
                 else:
                     console.print(
-                        f"  [blue]│[/blue]   {chunk}"
-                        f"{' ' * padding} [blue]│[/blue]"
+                        f"  [blue]│[/blue]   {chunk}{' ' * padding} [blue]│[/blue]"
                     )
 
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
-        console.print()
 
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
@@ -784,42 +780,56 @@ def _get_input() -> str:
 
 
 def _show_help():
-    """Show compact help."""
-    console.print()
-    console.print("  [bold cyan]◆[/bold cyan] [bold white]Quick Guide[/bold white]")
-    console.print()
-    console.print("  [bold]Examples:[/bold]")
-    console.print(
-        "    [dim]•[/dim] [white]list files in home[/white]          [dim]Run shell commands[/dim]"
+    """Show compact help using Rich panels and tables."""
+    # Examples table
+    examples = Table(box=None, show_header=False, padding=(0, 1), expand=True)
+    examples.add_column("prompt", style="white", ratio=3)
+    examples.add_column("desc", style="dim", ratio=2)
+    examples.add_row("list files in home", "Run shell commands")
+    examples.add_row("find python files > 1MB", "Complex file searches")
+    examples.add_row("analyze this CSV", "Data analysis")
+    examples.add_row("search web for FastAPI tips", "Web search")
+
+    # Commands table
+    cmds = Table(box=None, show_header=False, padding=(0, 1), expand=True)
+    cmds.add_column("cmd", style="cyan", width=12)
+    cmds.add_column("desc", style="dim")
+    cmds.add_row("/clear", "Reset conversation")
+    cmds.add_row("/status", "Connection & settings")
+    cmds.add_row("/history", "Conversation history")
+    cmds.add_row("/model X", "Switch to model X")
+    cmds.add_row("/quit", "Exit LocalCowork")
+
+    content = Text()
+    content.append("Examples\n", style="bold white")
+
+    help_group = Table.grid(padding=(0, 0))
+    help_group.add_row(Text("Examples", style="bold white"))
+    help_group.add_row(examples)
+    help_group.add_row(Text(""))
+    help_group.add_row(Text("Commands", style="bold white"))
+    help_group.add_row(cmds)
+    help_group.add_row(Text(""))
+    help_group.add_row(
+        Text("↑/↓ arrow keys cycle through previous inputs", style="dim")
     )
-    console.print(
-        "    [dim]•[/dim] [white]find python files > 1MB[/white]     [dim]Complex file searches[/dim]"
+
+    panel = Panel(
+        help_group,
+        title="[bold white]Quick Guide[/bold white]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=min(_get_width(), 60),
     )
-    console.print(
-        "    [dim]•[/dim] [white]analyze this CSV[/white]            [dim]Data analysis[/dim]"
-    )
-    console.print(
-        "    [dim]•[/dim] [white]search web for FastAPI tips[/white]  [dim]Web search[/dim]"
-    )
-    console.print()
-    console.print("  [bold]Commands:[/bold]")
-    console.print("    [cyan]/clear[/cyan]     [dim]Reset conversation[/dim]")
-    console.print(
-        "    [cyan]/status[/cyan]    [dim]Show settings and connection info[/dim]"
-    )
-    console.print("    [cyan]/history[/cyan]   [dim]Show conversation history[/dim]")
-    console.print("    [cyan]/model X[/cyan]   [dim]Switch to model X[/dim]")
-    console.print("    [cyan]/quit[/cyan]      [dim]Exit LocalCowork[/dim]")
-    console.print()
-    console.print(
-        "  [dim]Tip: Use ↑/↓ arrow keys to cycle through previous inputs[/dim]"
-    )
-    print_padding(1)
+    console.print(panel)
 
 
 def _show_status(model: str):
-    """Show current status and settings."""
+    """Show current status and settings with live health check."""
     import os
+
+    from agent.llm.client import check_ollama_health
 
     console.print()
     console.print("  [bold cyan]◆[/bold cyan] [bold white]Status[/bold white]")
@@ -831,46 +841,67 @@ def _show_status(model: str):
         f"    [dim]Max Steps:[/dim]   [white]{settings.max_agent_iterations}[/white]"
     )
     console.print(f"    [dim]Ollama URL:[/dim]  [white]{settings.ollama_url}[/white]")
-    print_padding(1)
+
+    # Live connection check
+    healthy, error = check_ollama_health()
+    if healthy:
+        console.print("    [dim]Connection:[/dim]  [green]● Connected[/green]")
+    else:
+        console.print(
+            f"    [dim]Connection:[/dim]  [red]● Disconnected[/red] [dim]({error})[/dim]"
+        )
+
+    console.print()
 
 
 def _show_history(conversation_history: list):
-    """Show conversation history."""
-    console.print()
-    console.print(
-        "  [bold cyan]◆[/bold cyan] [bold white]Conversation History[/bold white]"
-    )
-    console.print()
-
+    """Show conversation history with numbered exchanges."""
     if not conversation_history:
-        console.print("    [dim]No conversation history yet.[/dim]")
-        console.print()
+        panel = Panel(
+            "[dim]No conversation history yet.[/dim]",
+            title="[bold white]History[/bold white]",
+            border_style="bright_black",
+            box=box.ROUNDED,
+            padding=(1, 2),
+            width=min(_get_width(), 64),
+        )
+        console.print(panel)
         return
 
-    width = _get_width()
+    tbl = Table(box=None, show_header=True, padding=(0, 1), expand=True)
+    tbl.add_column("#", style="dim", width=3, justify="right")
+    tbl.add_column("Role", width=5)
+    tbl.add_column("Message")
 
-    for _i, msg in enumerate(conversation_history):
+    max_len = min(_get_width(), 64) - 22
+    exchange_num = 0
+
+    for msg in conversation_history:
         role = msg["role"]
-        content = msg["content"]
-
-        # Truncate long messages
-        if len(content) > width - 20:
-            content = content[: width - 23] + "..."
+        content = msg["content"].replace("\n", " ")
+        if len(content) > max_len:
+            content = content[: max_len - 1] + "…"
 
         if role == "user":
-            console.print(f"    [bold green]You:[/bold green] {content}")
+            exchange_num += 1
+            tbl.add_row(str(exchange_num), "[green]You[/green]", content)
         else:
-            console.print(f"    [bold cyan]AI:[/bold cyan] {content}")
+            tbl.add_row("", "[cyan]AI[/cyan]", f"[dim]{content}[/dim]")
 
-    console.print()
-    console.print(f"    [dim]{len(conversation_history)} messages in history[/dim]")
-    print_padding(1)
+    panel = Panel(
+        tbl,
+        title="[bold white]History[/bold white]",
+        subtitle=f"[dim]{exchange_num} exchange{'s' if exchange_num != 1 else ''}[/dim]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=min(_get_width(), 64),
+    )
+    console.print(panel)
 
 
 def _show_goodbye():
     """Show a clean goodbye message."""
     console.print()
-    console.print(
-        "  [bold cyan]◆[/bold cyan] [dim]Session ended. See you next time![/dim]"
-    )
-    print_padding(1)
+    console.print("  [dim]Session ended — see you next time.[/dim]")
+    console.print()
