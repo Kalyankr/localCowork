@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LocalCowork</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
     <!-- Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -14,14 +17,19 @@
     <!-- Header -->
     <header class="header">
         <div class="logo">
-            <span style="font-size: 1.25rem;">🤖</span>
-            <h1>LocalCowork</h1>
-            <span class="logo-version">v0.3.0</span>
-            <span class="status-badge connecting" id="status-badge">Connecting</span>
+            <div class="logo-mark">LC</div>
+            <div class="logo-text">
+                <h1>LocalCowork</h1>
+                <span class="logo-version">v0.3.0</span>
+            </div>
+            <span class="status-badge connecting" id="status-badge">
+                <span class="status-dot"></span>
+                Connecting
+            </span>
         </div>
         <div class="header-center">
             <div class="model-selector">
-                <label>Model:</label>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/></svg>
                 <select id="model-select" onchange="changeModel(this.value)">
                     <option value="mistral">mistral</option>
                     <option value="llama3.2">llama3.2</option>
@@ -32,9 +40,15 @@
             </div>
         </div>
         <div class="header-actions">
-            <button class="icon-btn" id="sidebar-toggle" onclick="toggleSidebar()" title="History (Ctrl+H)">📜</button>
-            <button class="icon-btn" onclick="showStatus()" title="Status (Ctrl+I)">ℹ️</button>
-            <button class="icon-btn" onclick="clearChat()" title="Clear (Ctrl+K)">🗑️</button>
+            <button class="icon-btn" id="sidebar-toggle" onclick="toggleSidebar()" title="History (Ctrl+H)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </button>
+            <button class="icon-btn" onclick="showStatus()" title="Status (Ctrl+I)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </button>
+            <button class="icon-btn" onclick="clearChat()" title="Clear (Ctrl+K)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
         </div>
     </header>
     
@@ -44,7 +58,9 @@
         <aside class="sidebar hidden" id="sidebar">
             <div class="sidebar-header">
                 <h3>History</h3>
-                <button class="icon-btn" onclick="toggleSidebar()">✕</button>
+                <button class="icon-btn small" onclick="toggleSidebar()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
             </div>
             <div class="sidebar-content" id="history-list">
                 <div class="no-history">No conversation history yet</div>
@@ -56,28 +72,30 @@
             <div class="chat-container" id="chat-container">
                 <!-- Empty State -->
                 <div class="empty-state" id="empty-state">
-                    <div class="empty-logo">🤖</div>
-                    <h2>Welcome to LocalCowork</h2>
-                    <p>Your local AI coding assistant. Run commands, write code, search the web — all from here.</p>
+                    <div class="empty-logo-mark">LC</div>
+                    <h2>What can I help you with?</h2>
+                    <p>Run commands, write code, analyze files, search the web — powered by your local LLM.</p>
                     <div class="examples">
                         <button class="example-btn" onclick="useExample(this)">
-                            <span class="example-icon">💻</span>
-                            <span class="example-text">List files in home directory</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h.01M11 7h6"/></svg>
+                            <span class="example-text">List files in current directory</span>
                         </button>
                         <button class="example-btn" onclick="useExample(this)">
-                            <span class="example-icon">🐍</span>
-                            <span class="example-text">Search for Python files</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <span class="example-text">Find Python files over 1MB</span>
                         </button>
                         <button class="example-btn" onclick="useExample(this)">
-                            <span class="example-icon">📊</span>
-                            <span class="example-text">Check disk usage</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+                            <span class="example-text">Check disk usage breakdown</span>
                         </button>
                         <button class="example-btn" onclick="useExample(this)">
-                            <span class="example-icon">🔧</span>
-                            <span class="example-text">Show system info</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                            <span class="example-text">Show system information</span>
                         </button>
                     </div>
-                    <div class="empty-hint">Type <kbd>/help</kbd> for commands · <kbd>Shift+Enter</kbd> for new line</div>
+                    <div class="empty-hint">
+                        <kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> new line &middot; <kbd>/</kbd> for commands
+                    </div>
                 </div>
             </div>
             
@@ -87,22 +105,16 @@
                     <div class="autocomplete" id="autocomplete"></div>
                     <textarea 
                         id="message-input" 
-                        placeholder="Ask anything or type / for commands..." 
+                        placeholder="Message LocalCowork..." 
                         autocomplete="off"
                         rows="1"
                     ></textarea>
                     <button id="send-btn" onclick="sendMessage()" title="Send message">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="22" y1="2" x2="11" y2="13"></line>
-                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            <path d="M22 2L11 13"/>
+                            <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
                         </svg>
                     </button>
-                </div>
-                <div class="keyboard-hints">
-                    <span><kbd>Enter</kbd> Send</span>
-                    <span><kbd>Shift+Enter</kbd> New line</span>
-                    <span><kbd>Ctrl+K</kbd> Clear</span>
-                    <span><kbd>Ctrl+H</kbd> History</span>
                 </div>
             </div>
         </div>
@@ -112,7 +124,9 @@
     <div class="modal-overlay hidden" id="confirm-modal">
         <div class="modal">
             <div class="modal-header">
-                <span class="icon">⚠️</span>
+                <div class="modal-icon-wrap">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </div>
                 <h3>Confirmation Required</h3>
             </div>
             <div class="modal-body">
@@ -121,7 +135,7 @@
             </div>
             <div class="modal-actions">
                 <button class="modal-btn cancel" onclick="handleConfirm(false)">Cancel</button>
-                <button class="modal-btn confirm" onclick="handleConfirm(true)">Proceed</button>
+                <button class="modal-btn confirm" onclick="handleConfirm(true)">Approve &amp; Run</button>
             </div>
         </div>
     </div>
