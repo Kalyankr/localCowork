@@ -659,8 +659,35 @@ def _show_response(text: str, model: str):
             else:
                 console.print(f"    {line}")
 
+    # Detect and display image file paths mentioned in the response
+    _show_images_in_response(text)
+
     # Add trailing padding for visual separation
     print_padding(1)
+
+
+import re as _re
+
+_IMAGE_PATH_RE = _re.compile(
+    r"(?:^|\s)((?:/|\.{1,2}/)?[\w./_ -]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp))\b",
+    _re.IGNORECASE,
+)
+
+
+def _show_images_in_response(text: str):
+    """Detect image file paths in the response and show clickable links."""
+    seen = set()
+    for match in _IMAGE_PATH_RE.finditer(text):
+        path = match.group(1).strip()
+        abs_path = os.path.abspath(path)
+        if abs_path in seen or not os.path.isfile(abs_path):
+            continue
+        seen.add(abs_path)
+        file_uri = f"file://{abs_path}"
+        console.print(
+            f"    [bold green]🖼  Image:[/bold green] [link={file_uri}]{path}[/link] "
+            f"[dim](click to open)[/dim]"
+        )
 
 
 def _show_welcome(model: str):
