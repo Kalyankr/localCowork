@@ -726,20 +726,27 @@ def _get_input() -> str:
     max_input_len = inner_width - 5  # Space for "│ > " and " │"
 
     try:
-        # Print top border only
+        # Draw full box frame: top, empty input line, bottom
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
+        console.print(
+            f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
+        )
+        console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
 
-        # Build a readline-safe prompt: \001/\002 mark non-printing chars
-        # so readline calculates cursor position correctly
-        blue = "\033[34m"
-        dim = "\033[2m"
-        reset = "\033[0m"
-        prompt = f"  \001{blue}\002│\001{reset}\002 \001{dim}\002>\001{reset}\002 "
+        # Move cursor up 2 lines (to the input row) and position after "> "
+        sys.stdout.write("\033[2A")  # Up 2 lines (bottom border + input row → input row)
+        sys.stdout.write(f"\033[6G")  # Column 6: past "  │ > "
+        sys.stdout.flush()
+
+        # Build a readline-safe prompt with zero visible width
+        # \001/\002 delimit non-printing sequences so readline knows
+        # the cursor hasn't moved (we already positioned it above)
+        prompt = "\001\002"
 
         user_input = input(prompt)
 
-        # Move up to erase the top border + input line, then redraw cleanly
-        sys.stdout.write("\033[2A")  # Up 2 lines (input line + top border)
+        # Move up to erase the full 3-line box + input, then redraw cleanly
+        sys.stdout.write("\033[3A")  # Up 3 lines (top border, input, bottom)
         sys.stdout.write("\033[J")  # Clear from cursor to end of screen
         sys.stdout.flush()
 
