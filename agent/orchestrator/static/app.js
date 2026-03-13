@@ -20,6 +20,23 @@ let startTime = null;
 let stepResults = [];
 
 // =============================================================================
+// Markdown Configuration
+// =============================================================================
+
+if (typeof marked !== 'undefined') {
+    marked.setOptions({
+        breaks: true,
+        gfm: true,
+        highlight: function(code, lang) {
+            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                return hljs.highlight(code, { language: lang }).value;
+            }
+            return typeof hljs !== 'undefined' ? hljs.highlightAuto(code).value : code;
+        }
+    });
+}
+
+// =============================================================================
 // Slash Commands
 // =============================================================================
 
@@ -186,6 +203,7 @@ async function sendMessage() {
     
     addMessage(text, 'user');
     messageInput.value = '';
+    messageInput.style.height = 'auto';
     
     isProcessing = true;
     sendBtn.disabled = true;
@@ -247,23 +265,71 @@ async function sendMessage() {
 function addMessage(text, type, meta = null) {
     const msg = document.createElement('div');
     msg.className = 'message ' + type;
-    msg.textContent = text;
+    
+    if (type === 'assistant' && typeof marked !== 'undefined') {
+        // Render markdown for assistant messages
+        const mdDiv = document.createElement('div');
+        mdDiv.className = 'md-content';
+        mdDiv.innerHTML = marked.parse(text);
+        msg.appendChild(mdDiv);
+        
+        // Add copy buttons to code blocks
+        msg.querySelectorAll('pre').forEach(pre => {
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'code-copy-btn';
+            copyBtn.textContent = 'Copy';
+            copyBtn.onclick = () => {
+                const code = pre.querySelector('code')?.textContent || pre.textContent;
+                navigator.clipboard.writeText(code).then(() => {
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => copyBtn.textContent = 'Copy', 1500);
+                });
+            };
+            pre.style.position = 'relative';
+            pre.appendChild(copyBtn);
+        });
+    } else {
+        msg.textContent = text;
+    }
     
     // Add metadata (duration, steps)
     if (meta && type === 'assistant') {
         const metaEl = document.createElement('div');
         metaEl.className = 'message-meta';
         if (meta.duration) {
-            metaEl.innerHTML += `<span>✓ ${meta.duration}s</span>`;
+            metaEl.innerHTML += `<span>\u2713 ${meta.duration}s</span>`;
         }
         if (meta.steps) {
-            metaEl.innerHTML += `<span>• ${meta.steps} steps</span>`;
+            metaEl.innerHTML += `<span>\u2022 ${meta.steps} steps</span>`;
         }
         msg.appendChild(metaEl);
     }
     
+    // Add timestamp
+    const timestamp = document.createElement('div');
+    timestamp.className = 'message-timestamp';
+    timestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    msg.appendChild(timestamp);
+    
+    // Add copy button for assistant messages
+    if (type === 'assistant') {
+        const actions = document.createElement('div');
+        actions.className = 'message-actions';
+        const copyMsgBtn = document.createElement('button');
+        copyMsgBtn.className = 'msg-action-btn';
+        copyMsgBtn.textContent = '\ud83d\udccb Copy';
+        copyMsgBtn.onclick = () => {
+            navigator.clipboard.writeText(text).then(() => {
+                copyMsgBtn.textContent = '\u2713 Copied';
+                setTimeout(() => copyMsgBtn.textContent = '\ud83d\udccb Copy', 1500);
+            });
+        };
+        actions.appendChild(copyMsgBtn);
+        msg.appendChild(actions);
+    }
+    
     chatContainer.appendChild(msg);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
 }
 
 // =============================================================================
@@ -282,7 +348,7 @@ function showProgress() {
         </div>
     `;
     chatContainer.appendChild(el);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
     return el;
 }
 
@@ -313,7 +379,7 @@ function updateProgress(msg) {
                 </div>
             `;
         }
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
         return;
     }
     
@@ -368,7 +434,7 @@ function updateProgress(msg) {
     }
     
     stepsEl.innerHTML = stepsHtml;
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
 }
 
 function finishTask(msg) {
@@ -480,14 +546,28 @@ function clearChat() {
     newEmpty.className = 'empty-state';
     newEmpty.id = 'empty-state';
     newEmpty.innerHTML = `
-        <h2>👋 Hey there!</h2>
-        <p>I'm your local AI assistant. Ask me anything or give me a task.</p>
+        <div class="empty-logo">\ud83e\udd16</div>
+        <h2>Welcome to LocalCowork</h2>
+        <p>Your local AI coding assistant. Run commands, write code, search the web \u2014 all from here.</p>
         <div class="examples">
-            <button class="example-btn" onclick="useExample(this)">List files in home directory</button>
-            <button class="example-btn" onclick="useExample(this)">What's the current date?</button>
-            <button class="example-btn" onclick="useExample(this)">Search for Python files</button>
-            <button class="example-btn" onclick="useExample(this)">Check disk usage</button>
+            <button class="example-btn" onclick="useExample(this)">
+                <span class="example-icon">\ud83d\udcbb</span>
+                <span class="example-text">List files in home directory</span>
+            </button>
+            <button class="example-btn" onclick="useExample(this)">
+                <span class="example-icon">\ud83d\udc0d</span>
+                <span class="example-text">Search for Python files</span>
+            </button>
+            <button class="example-btn" onclick="useExample(this)">
+                <span class="example-icon">\ud83d\udcca</span>
+                <span class="example-text">Check disk usage</span>
+            </button>
+            <button class="example-btn" onclick="useExample(this)">
+                <span class="example-icon">\ud83d\udd27</span>
+                <span class="example-text">Show system info</span>
+            </button>
         </div>
+        <div class="empty-hint">Type <kbd>/help</kbd> for commands \u00b7 <kbd>Shift+Enter</kbd> for new line</div>
     `;
     chatContainer.appendChild(newEmpty);
     sessionId = null;
@@ -495,7 +575,8 @@ function clearChat() {
 }
 
 function useExample(btn) {
-    messageInput.value = btn.textContent;
+    const textEl = btn.querySelector('.example-text');
+    messageInput.value = textEl ? textEl.textContent : btn.textContent;
     messageInput.focus();
 }
 
@@ -550,6 +631,9 @@ messageInput.addEventListener('input', (e) => {
     } else {
         hideAutocomplete();
     }
+    // Auto-resize textarea
+    messageInput.style.height = 'auto';
+    messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
 });
 
 // Keyboard shortcuts
@@ -574,7 +658,7 @@ document.addEventListener('keydown', (e) => {
         hideAutocomplete();
         document.getElementById('confirm-modal').classList.add('hidden');
     }
-    // Enter to send
+    // Enter to send (Shift+Enter for new line in textarea)
     if (e.key === 'Enter' && document.activeElement === messageInput && !e.shiftKey && !isProcessing) {
         e.preventDefault();
         sendMessage();

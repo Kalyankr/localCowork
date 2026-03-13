@@ -9,10 +9,13 @@
     --text-dim: #71717a;
     --accent: #3b82f6;
     --accent-hover: #2563eb;
+    --accent-soft: rgba(59, 130, 246, 0.12);
     --success: #22c55e;
     --error: #ef4444;
     --warning: #f59e0b;
     --cyan: #06b6d4;
+    --radius: 12px;
+    --transition: 0.2s ease;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -253,9 +256,22 @@ body {
 .message {
     max-width: 85%;
     padding: 0.875rem 1rem;
-    border-radius: 12px;
+    border-radius: var(--radius);
     line-height: 1.6;
     font-size: 0.9rem;
+    position: relative;
+    animation: messageIn 0.3s ease-out;
+}
+
+@keyframes messageIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .message.user {
@@ -269,6 +285,143 @@ body {
     border: 1px solid var(--border);
     align-self: flex-start;
     border-bottom-left-radius: 4px;
+}
+
+/* Markdown content inside assistant messages */
+.message.assistant .md-content {
+    line-height: 1.7;
+}
+
+.message.assistant .md-content p {
+    margin-bottom: 0.5em;
+}
+
+.message.assistant .md-content p:last-child {
+    margin-bottom: 0;
+}
+
+.message.assistant .md-content code {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.message.assistant .md-content pre {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.875rem 1rem;
+    margin: 0.5em 0;
+    overflow-x: auto;
+    position: relative;
+}
+
+.message.assistant .md-content pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.message.assistant .md-content ul,
+.message.assistant .md-content ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+
+.message.assistant .md-content li {
+    margin-bottom: 0.25em;
+}
+
+.message.assistant .md-content h1,
+.message.assistant .md-content h2,
+.message.assistant .md-content h3 {
+    margin-top: 0.75em;
+    margin-bottom: 0.25em;
+}
+
+.message.assistant .md-content h1 { font-size: 1.2em; }
+.message.assistant .md-content h2 { font-size: 1.1em; }
+.message.assistant .md-content h3 { font-size: 1em; }
+
+.message.assistant .md-content blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 0.75em;
+    margin: 0.5em 0;
+    color: var(--text-dim);
+}
+
+.message.assistant .md-content table {
+    border-collapse: collapse;
+    margin: 0.5em 0;
+    width: 100%;
+}
+
+.message.assistant .md-content th,
+.message.assistant .md-content td {
+    border: 1px solid var(--border);
+    padding: 0.4em 0.75em;
+    text-align: left;
+}
+
+.message.assistant .md-content th {
+    background: var(--surface-hover);
+}
+
+/* Copy button for code blocks */
+.code-copy-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.message.assistant pre:hover .code-copy-btn {
+    opacity: 1;
+}
+
+.code-copy-btn:hover {
+    color: var(--text);
+    background: var(--border);
+}
+
+/* Message action buttons (copy whole message) */
+.message-actions {
+    display: flex;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.message:hover .message-actions {
+    opacity: 1;
+}
+
+.msg-action-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    transition: all var(--transition);
+}
+
+.msg-action-btn:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
 }
 
 .message.system {
@@ -294,6 +447,12 @@ body {
     margin-top: 0.5rem;
     font-size: 0.7rem;
     color: var(--text-dim);
+}
+
+.message-timestamp {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-top: 0.375rem;
 }
 
 /* =============================================================================
@@ -599,7 +758,13 @@ body {
     color: var(--text);
     font-size: 0.95rem;
     outline: none;
-    transition: border-color 0.2s;
+    transition: border-color var(--transition);
+    resize: none;
+    min-height: 44px;
+    max-height: 150px;
+    line-height: 1.5;
+    font-family: inherit;
+    overflow-y: auto;
 }
 
 #message-input:focus { border-color: var(--accent); }
@@ -610,15 +775,20 @@ body {
     color: white;
     border: none;
     border-radius: 10px;
-    padding: 0 1.25rem;
+    padding: 0 1rem;
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
 }
 
-#send-btn:hover { background: var(--accent-hover); }
-#send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#send-btn:hover { background: var(--accent-hover); transform: scale(1.05); }
+#send-btn:active { transform: scale(0.95); }
+#send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 /* =============================================================================
    Keyboard Hints
@@ -654,10 +824,36 @@ body {
     justify-content: center;
     text-align: center;
     padding: 2rem;
+    animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.empty-logo {
+    font-size: 3rem;
+    margin-bottom: 0.75rem;
 }
 
 .empty-state h2 { font-size: 1.375rem; margin-bottom: 0.5rem; }
-.empty-state p { color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem; }
+.empty-state p { color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem; max-width: 480px; }
+
+.empty-hint {
+    margin-top: 1.25rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.empty-hint kbd {
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.375rem;
+    font-family: inherit;
+    font-size: 0.7rem;
+}
 
 .examples {
     display: flex;
@@ -671,16 +867,24 @@ body {
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 0.5rem 0.875rem;
-    border-radius: 8px;
+    padding: 0.625rem 1rem;
+    border-radius: 10px;
     cursor: pointer;
     font-size: 0.85rem;
-    transition: all 0.2s;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.example-icon {
+    font-size: 1.1rem;
 }
 
 .example-btn:hover {
-    background: var(--surface-hover);
+    background: var(--accent-soft);
     border-color: var(--accent);
+    transform: translateY(-1px);
 }
 
 /* =============================================================================
@@ -700,6 +904,14 @@ body {
     .sidebar { display: none; }
     .header-center { display: none; }
     .keyboard-hints { display: none; }
+    .message { max-width: 95%; }
+    .input-area { padding: 0.5rem 0.75rem; }
+    .header { padding: 0.5rem 0.75rem; }
+    .chat-container { padding: 0.75rem; }
+    .examples { flex-direction: column; align-items: stretch; }
+    .example-btn { justify-content: center; }
+    .empty-state { padding: 1rem; }
+    .empty-state h2 { font-size: 1.2rem; }
 }
 
 /* =============================================================================

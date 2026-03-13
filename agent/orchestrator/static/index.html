@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LocalCowork</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
 </head>
 <body>
     <!-- Header -->
@@ -52,14 +56,28 @@
             <div class="chat-container" id="chat-container">
                 <!-- Empty State -->
                 <div class="empty-state" id="empty-state">
-                    <h2>👋 Hey there!</h2>
-                    <p>I'm your local AI assistant. Ask me anything or give me a task.</p>
+                    <div class="empty-logo">🤖</div>
+                    <h2>Welcome to LocalCowork</h2>
+                    <p>Your local AI coding assistant. Run commands, write code, search the web — all from here.</p>
                     <div class="examples">
-                        <button class="example-btn" onclick="useExample(this)">List files in home directory</button>
-                        <button class="example-btn" onclick="useExample(this)">What's the current date?</button>
-                        <button class="example-btn" onclick="useExample(this)">Search for Python files</button>
-                        <button class="example-btn" onclick="useExample(this)">Check disk usage</button>
+                        <button class="example-btn" onclick="useExample(this)">
+                            <span class="example-icon">💻</span>
+                            <span class="example-text">List files in home directory</span>
+                        </button>
+                        <button class="example-btn" onclick="useExample(this)">
+                            <span class="example-icon">🐍</span>
+                            <span class="example-text">Search for Python files</span>
+                        </button>
+                        <button class="example-btn" onclick="useExample(this)">
+                            <span class="example-icon">📊</span>
+                            <span class="example-text">Check disk usage</span>
+                        </button>
+                        <button class="example-btn" onclick="useExample(this)">
+                            <span class="example-icon">🔧</span>
+                            <span class="example-text">Show system info</span>
+                        </button>
                     </div>
+                    <div class="empty-hint">Type <kbd>/help</kbd> for commands · <kbd>Shift+Enter</kbd> for new line</div>
                 </div>
             </div>
             
@@ -67,19 +85,24 @@
             <div class="input-area">
                 <div class="input-container">
                     <div class="autocomplete" id="autocomplete"></div>
-                    <input 
-                        type="text" 
+                    <textarea 
                         id="message-input" 
                         placeholder="Ask anything or type / for commands..." 
                         autocomplete="off"
-                    >
-                    <button id="send-btn" onclick="sendMessage()">Send</button>
+                        rows="1"
+                    ></textarea>
+                    <button id="send-btn" onclick="sendMessage()" title="Send message">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
                 </div>
                 <div class="keyboard-hints">
                     <span><kbd>Enter</kbd> Send</span>
+                    <span><kbd>Shift+Enter</kbd> New line</span>
                     <span><kbd>Ctrl+K</kbd> Clear</span>
                     <span><kbd>Ctrl+H</kbd> History</span>
-                    <span><kbd>/help</kbd> Commands</span>
                 </div>
             </div>
         </div>
