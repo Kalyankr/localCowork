@@ -714,48 +714,47 @@ def _show_welcome(model: str):
 
 
 def _get_input() -> str:
-    """Get user input with complete blue rectangle box.
+    """Get user input with a blue rectangle box.
 
-    Shows the full box (top, sides, bottom) before typing,
-    with cursor positioned inside. For long text, the box
-    expands to show multiple lines.
+    Uses readline-aware prompt so backspace/arrow keys respect boundaries.
+    After input, redraws the complete box with the entered text.
     """
     width = _get_width()
     inner_width = width - 8
     max_input_len = inner_width - 5  # Space for "│ > " and " │"
 
     try:
-        # Print initial box with prompt
+        # Print top border only
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
-        console.print(
-            f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
+
+        # Build a readline-safe prompt: \001/\002 mark non-printing chars
+        # so readline calculates cursor position correctly
+        blue = "\033[34m"
+        dim = "\033[2m"
+        reset = "\033[0m"
+        prompt = (
+            f"  \001{blue}\002│\001{reset}\002 "
+            f"\001{dim}\002>\001{reset}\002 "
         )
-        console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
 
-        # Print empty lines BELOW the box to create scroll buffer
-        console.print()
-        console.print()
+        user_input = input(prompt)
 
-        # Move cursor up 4 lines (2 empty + bottom border + to middle line)
-        # Then right to input position (past "  │ > ")
-        sys.stdout.write("\033[4A\033[7C")
+        # Move up to erase the top border + input line, then redraw cleanly
+        sys.stdout.write("\033[2A")  # Up 2 lines (input line + top border)
+        sys.stdout.write("\033[J")  # Clear from cursor to end of screen
         sys.stdout.flush()
 
-        # Get input
-        user_input = input()
+        # Redraw complete box with entered text
+        console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
 
-        # After input, redraw the box with the full text properly wrapped
-        if len(user_input) > max_input_len:
-            # Move back up and clear the old box
-            # Go up 1 line (we're on middle), clear from here down
-            sys.stdout.write("\033[1A")  # Up to top border
-            sys.stdout.write("\033[J")  # Clear from cursor to end of screen
-            sys.stdout.flush()
-
-            # Redraw box with wrapped text
-            console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
-
-            # Split input into lines that fit
+        if not user_input.strip():
+            # Empty input — show empty box
+            console.print(
+                f"  [blue]│[/blue] [dim]>[/dim] "
+                f"{' ' * (inner_width - 5)}[blue]│[/blue]"
+            )
+        else:
+            # Render text, wrapping if needed
             remaining = user_input
             first_line = True
             while remaining:
@@ -771,22 +770,15 @@ def _get_input() -> str:
                     first_line = False
                 else:
                     console.print(
-                        f"  [blue]│[/blue]   {chunk}{' ' * padding} [blue]│[/blue]"
+                        f"  [blue]│[/blue]   {chunk}"
+                        f"{' ' * padding} [blue]│[/blue]"
                     )
 
-            console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
-            console.print()
-            console.print()
-        else:
-            # Short input - just move cursor down past the box
-            sys.stdout.write("\033[4B\r")
-            sys.stdout.flush()
+        console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
+        console.print()
 
         return user_input.strip()
     except (KeyboardInterrupt, EOFError):
-        # Clean up cursor position on interrupt
-        sys.stdout.write("\033[4B\r")
-        sys.stdout.flush()
         console.print()
         raise
 
