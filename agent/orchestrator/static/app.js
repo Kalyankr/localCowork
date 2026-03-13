@@ -82,7 +82,8 @@ function connectWebSocket() {
 
 function updateStatus(status) {
     statusBadge.className = 'status-badge ' + status;
-    statusBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    const label = status.charAt(0).toUpperCase() + status.slice(1);
+    statusBadge.innerHTML = `<span class="status-dot"></span>${label}`;
 }
 
 function handleWsMessage(msg) {
@@ -530,15 +531,6 @@ function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
-    toast.style.cssText = `
-        padding: 12px 20px;
-        margin-bottom: 10px;
-        border-radius: 8px;
-        color: white;
-        font-weight: 500;
-        animation: slideIn 0.3s ease-out;
-        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
-    `;
     
     toastContainer.appendChild(toast);
     
@@ -559,28 +551,28 @@ function clearChat() {
     newEmpty.className = 'empty-state';
     newEmpty.id = 'empty-state';
     newEmpty.innerHTML = `
-        <div class="empty-logo">\ud83e\udd16</div>
-        <h2>Welcome to LocalCowork</h2>
-        <p>Your local AI coding assistant. Run commands, write code, search the web \u2014 all from here.</p>
+        <div class="empty-logo-mark">LC</div>
+        <h2>What can I help you with?</h2>
+        <p>Run commands, write code, analyze files, search the web \u2014 powered by your local LLM.</p>
         <div class="examples">
             <button class="example-btn" onclick="useExample(this)">
-                <span class="example-icon">\ud83d\udcbb</span>
-                <span class="example-text">List files in home directory</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h.01M11 7h6"/></svg>
+                <span class="example-text">List files in current directory</span>
             </button>
             <button class="example-btn" onclick="useExample(this)">
-                <span class="example-icon">\ud83d\udc0d</span>
-                <span class="example-text">Search for Python files</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span class="example-text">Find Python files over 1MB</span>
             </button>
             <button class="example-btn" onclick="useExample(this)">
-                <span class="example-icon">\ud83d\udcca</span>
-                <span class="example-text">Check disk usage</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+                <span class="example-text">Check disk usage breakdown</span>
             </button>
             <button class="example-btn" onclick="useExample(this)">
-                <span class="example-icon">\ud83d\udd27</span>
-                <span class="example-text">Show system info</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                <span class="example-text">Show system information</span>
             </button>
         </div>
-        <div class="empty-hint">Type <kbd>/help</kbd> for commands \u00b7 <kbd>Shift+Enter</kbd> for new line</div>
+        <div class="empty-hint"><kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> new line &middot; <kbd>/</kbd> for commands</div>
     `;
     chatContainer.appendChild(newEmpty);
     sessionId = null;
