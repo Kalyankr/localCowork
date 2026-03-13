@@ -288,6 +288,19 @@ function addMessage(text, type, meta = null) {
             pre.style.position = 'relative';
             pre.appendChild(copyBtn);
         });
+        
+        // Rewrite image src to use /files/ endpoint for local paths
+        msg.querySelectorAll('img').forEach(img => {
+            const src = img.getAttribute('src') || '';
+            if (src && !src.startsWith('http') && !src.startsWith('/files/') && !src.startsWith('data:')) {
+                img.setAttribute('src', '/files/' + src.replace(/^\/+/, ''));
+            }
+            img.classList.add('chat-image');
+            img.addEventListener('click', () => openImageModal(img.src));
+        });
+        
+        // Detect image file paths mentioned in text and render inline
+        renderInlineImages(mdDiv);
     } else {
         msg.textContent = text;
     }
@@ -578,6 +591,63 @@ function useExample(btn) {
     const textEl = btn.querySelector('.example-text');
     messageInput.value = textEl ? textEl.textContent : btn.textContent;
     messageInput.focus();
+}
+
+// =============================================================================
+// Image Display
+// =============================================================================
+
+const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
+const IMAGE_PATH_REGEX = /(?:^|\s)((?:\/|\.\/|\.\.\/)?[\w./_-]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp))\b/gi;
+
+function renderInlineImages(container) {
+    // Walk text nodes looking for image file paths not already inside <img> or <a>
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.parentElement?.closest('code, pre, a, img')) continue;
+        let m;
+        IMAGE_PATH_REGEX.lastIndex = 0;
+        while ((m = IMAGE_PATH_REGEX.exec(node.textContent)) !== null) {
+            matches.push({ node, path: m[1].trim() });
+        }
+    }
+    // Deduplicate paths already shown as <img>
+    const existingSrcs = new Set([...container.querySelectorAll('img')].map(i => i.src));
+    for (const { path } of matches) {
+        const src = '/files/' + path.replace(/^\/+/, '');
+        if (existingSrcs.has(window.location.origin + src)) continue;
+        existingSrcs.add(window.location.origin + src);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'inline-image-wrapper';
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = path;
+        img.className = 'chat-image';
+        img.addEventListener('click', () => openImageModal(img.src));
+        img.addEventListener('error', () => wrapper.remove());
+        wrapper.appendChild(img);
+        const caption = document.createElement('div');
+        caption.className = 'image-caption';
+        caption.textContent = path;
+        wrapper.appendChild(caption);
+        container.appendChild(wrapper);
+    }
+}
+
+function openImageModal(src) {
+    let overlay = document.getElementById('image-modal');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'image-modal';
+        overlay.className = 'image-modal-overlay';
+        overlay.addEventListener('click', () => overlay.classList.add('hidden'));
+        overlay.innerHTML = '<img class="image-modal-img" />';
+        document.body.appendChild(overlay);
+    }
+    overlay.querySelector('img').src = src;
+    overlay.classList.remove('hidden');
 }
 
 // =============================================================================

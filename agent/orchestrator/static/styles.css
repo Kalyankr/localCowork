@@ -963,3 +963,62 @@ body {
 .step.error .step-header { color: var(--error); }
 .step.success .step-icon { color: var(--success); }
 .step.error .step-icon { color: var(--error); }
+
+/* =============================================================================
+   Inline Images
+   ============================================================================= */
+
+.chat-image {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 8px;
+    margin: 0.5em 0;
+    cursor: pointer;
+    transition: transform var(--transition);
+    border: 1px solid var(--border);
+}
+
+.chat-image:hover {
+    transform: scale(1.02);
+}
+
+.inline-image-wrapper {
+    margin: 0.75em 0;
+}
+
+.image-caption {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 0.25rem;
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+/* =============================================================================
+   Image Lightbox Modal
+   ============================================================================= */
+
+.image-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    cursor: zoom-out;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.image-modal-overlay.hidden {
+    display: none;
+}
+
+.image-modal-img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
