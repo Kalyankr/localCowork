@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import io
 import os
+import readline  # noqa: F401 — enables arrow-key history in input()
 import shutil
 import sys
 import time
@@ -177,11 +178,13 @@ def _process_input_agentic(
     # Nice spinner animation frames
     spinner_frames = ["◐", "◓", "◑", "◒"]
     frame_idx = [0]  # Use list to mutate in closure
+    display_start_time = time.time()
 
     def build_agent_display():
         """Build spinner display showing current activity."""
         frame_idx[0] = (frame_idx[0] + 1) % len(spinner_frames)
         spinner = spinner_frames[frame_idx[0]]
+        elapsed = format_duration(time.time() - display_start_time)
 
         iteration = current_state["iteration"]
         status = current_state["status"]
@@ -226,6 +229,7 @@ def _process_input_agentic(
             line.append(
                 "Hmm, that didn't work. Let me try another approach...", style="yellow"
             )
+            line.append(f"  [{elapsed}]", style="dim")
         elif status == "steering":
             line.append("↪ ", style="bold magenta")
             thought = current_state.get("thought", "")
@@ -233,9 +237,11 @@ def _process_input_agentic(
                 line.append(f"Adjusting: {thought[:50]}", style="magenta")
             else:
                 line.append("Received your update, adjusting...", style="magenta")
+            line.append(f"  [{elapsed}]", style="dim")
         elif status == "thinking":
             line.append(f"{spinner} ", style="bold yellow")
             line.append("Thinking...", style="yellow")
+            line.append(f"  [{elapsed}]", style="dim")
         elif status == "executing":
             line.append(f"{spinner} ", style="bold cyan")
             # Show what's being executed
@@ -255,6 +261,7 @@ def _process_input_agentic(
                     line.append("Executing...", style="cyan")
             else:
                 line.append("Executing...", style="cyan")
+            line.append(f"  [{elapsed}]", style="dim")
 
         # Show step count and progress dots
         if iteration > 0 or steps:
@@ -619,30 +626,40 @@ Be concise and conversational. Focus on what was achieved."""
 
 
 def _show_response(text: str, model: str):
-    """Display agent response with clean formatting."""
-    width = _get_width()
+    """Display agent response with clean formatting and markdown support."""
+    from rich.markdown import Markdown
+    from rich.padding import Padding
 
     console.print()
     console.print("  [bold cyan]◆[/bold cyan] [bold white]LocalCowork[/bold white]")
+    console.print()
 
-    # Clean and wrap the text properly
-    for line in text.split("\n"):
-        if len(line) > width - 8:
-            # Word wrap long lines
-            words = line.split()
-            current = ""
-            for word in words:
-                if len(current) + len(word) + 1 > width - 8:
+    # Render as Markdown if the text contains markdown indicators
+    has_markdown = any(
+        marker in text for marker in ["```", "**", "##", "- ", "* ", "1. ", "> ", "| "]
+    )
+
+    if has_markdown:
+        md = Markdown(text)
+        console.print(Padding(md, (0, 4)))
+    else:
+        width = _get_width()
+        for line in text.split("\n"):
+            if len(line) > width - 8:
+                words = line.split()
+                current = ""
+                for word in words:
+                    if len(current) + len(word) + 1 > width - 8:
+                        console.print(f"    {current}")
+                        current = word
+                    else:
+                        current = f"{current} {word}" if current else word
+                if current:
                     console.print(f"    {current}")
-                    current = word
-                else:
-                    current = f"{current} {word}" if current else word
-            if current:
-                console.print(f"    {current}")
-        else:
-            console.print(f"    {line}")
+            else:
+                console.print(f"    {line}")
 
-    # Add trailing padding for visual separation and to keep away from terminal bottom
+    # Add trailing padding for visual separation
     print_padding(1)
 
 
@@ -655,7 +672,14 @@ def _show_welcome(model: str):
         f"  [bold cyan]██╗[/bold cyan]  [bold white]LocalCowork[/bold white] [dim]v{__version__}[/dim]  [green]●[/green] [dim]{model}[/dim]"
     )
     console.print(
-        "  [bold cyan]███████╗[/bold cyan]  [dim]Type a request or /help[/dim]"
+        "  [bold cyan]███████╗[/bold cyan]  [dim]Your local AI coding assistant[/dim]"
+    )
+    console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
+    console.print(
+        "  [dim]Try:[/dim] [white]list files[/white] · [white]find large files[/white] · [white]explain this error[/white]"
+    )
+    console.print(
+        "  [dim]Commands:[/dim] [cyan]/help[/cyan] [cyan]/status[/cyan] [cyan]/clear[/cyan] [cyan]/model[/cyan] [cyan]/quit[/cyan]"
     )
     console.print("  [bright_black]" + "─" * (width - 6) + "[/bright_black]")
     # Bottom margin to keep content away from terminal edge
@@ -743,11 +767,33 @@ def _get_input() -> str:
 def _show_help():
     """Show compact help."""
     console.print()
+    console.print("  [bold cyan]◆[/bold cyan] [bold white]Quick Guide[/bold white]")
+    console.print()
+    console.print("  [bold]Examples:[/bold]")
     console.print(
-        "  [bold]Examples:[/bold] [dim]list files in home[/dim] · [dim]find python files > 1MB[/dim] · [dim]analyze this CSV[/dim]"
+        "    [dim]•[/dim] [white]list files in home[/white]          [dim]Run shell commands[/dim]"
     )
     console.print(
-        "  [bold]Commands:[/bold] [cyan]/clear[/cyan] [cyan]/status[/cyan] [cyan]/history[/cyan] [cyan]/model X[/cyan] [cyan]/help[/cyan] [cyan]/quit[/cyan]"
+        "    [dim]•[/dim] [white]find python files > 1MB[/white]     [dim]Complex file searches[/dim]"
+    )
+    console.print(
+        "    [dim]•[/dim] [white]analyze this CSV[/white]            [dim]Data analysis[/dim]"
+    )
+    console.print(
+        "    [dim]•[/dim] [white]search web for FastAPI tips[/white]  [dim]Web search[/dim]"
+    )
+    console.print()
+    console.print("  [bold]Commands:[/bold]")
+    console.print("    [cyan]/clear[/cyan]     [dim]Reset conversation[/dim]")
+    console.print(
+        "    [cyan]/status[/cyan]    [dim]Show settings and connection info[/dim]"
+    )
+    console.print("    [cyan]/history[/cyan]   [dim]Show conversation history[/dim]")
+    console.print("    [cyan]/model X[/cyan]   [dim]Switch to model X[/dim]")
+    console.print("    [cyan]/quit[/cyan]      [dim]Exit LocalCowork[/dim]")
+    console.print()
+    console.print(
+        "  [dim]Tip: Use ↑/↓ arrow keys to cycle through previous inputs[/dim]"
     )
     print_padding(1)
 
@@ -805,5 +851,7 @@ def _show_history(conversation_history: list):
 def _show_goodbye():
     """Show a clean goodbye message."""
     console.print()
-    console.print("  [dim]Session ended. Goodbye![/dim]")
+    console.print(
+        "  [bold cyan]◆[/bold cyan] [dim]Session ended. See you next time![/dim]"
+    )
     print_padding(1)
