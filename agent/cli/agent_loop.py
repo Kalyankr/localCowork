@@ -734,7 +734,9 @@ def _get_input() -> str:
         console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
 
         # Move cursor up 2 lines (to the input row) and position after "> "
-        sys.stdout.write("\033[2A")  # Up 2 lines (bottom border + input row → input row)
+        sys.stdout.write(
+            "\033[2A"
+        )  # Up 2 lines (bottom border + input row → input row)
         sys.stdout.write(f"\033[6G")  # Column 6: past "  │ > "
         sys.stdout.flush()
 
