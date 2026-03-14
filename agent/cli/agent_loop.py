@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import io
 import os
+import re as _re
 import readline  # noqa: F401 — enables arrow-key history in input()
 import shutil
 import sys
@@ -19,7 +20,6 @@ from agent.cli.console import (
     console,
     format_duration,
     print_error,
-    print_padding,
 )
 from agent.version import __version__
 
@@ -650,8 +650,6 @@ def _show_response(text: str, model: str):
     console.print()
 
 
-import re as _re
-
 _IMAGE_PATH_RE = _re.compile(
     r"(?:^|\s)((?:/|\.{1,2}/)?[\w./_ -]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp))\b",
     _re.IGNORECASE,
@@ -737,7 +735,7 @@ def _get_input() -> str:
         sys.stdout.write(
             "\033[2A"
         )  # Up 2 lines (bottom border + input row → input row)
-        sys.stdout.write(f"\033[6G")  # Column 6: past "  │ > "
+        sys.stdout.write("\033[6G")  # Column 6: past "  │ > "
         sys.stdout.flush()
 
         # Build a readline-safe prompt with zero visible width
