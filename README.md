@@ -10,9 +10,14 @@
 LocalCowork is a **pure agentic** AI assistant that uses shell commands, Python, and web search to accomplish tasks-adapting step-by-step based on what it discovers. **100% local, 100% private.**
 
 ```
-  ██╗  LocalCowork v0.3.0  ● mistral
-  ███████╗  Type a request or /help
-  ──────────────────────────────────────
+  ╭─ LocalCowork ──────────────────────────╮
+  │                                        │
+  │  Model     mistral                     │
+  │  Status    ● Connected                 │
+  │                                        │
+  │  Type a request or /help for commands  │
+  │                                        │
+  ╰────────────────────────────────────────╯
 
   ╭──────────────────────────────────────╮
   │ > organize my downloads by file type │
@@ -20,7 +25,7 @@ LocalCowork is a **pure agentic** AI assistant that uses shell commands, Python,
 
   ◐ $ mkdir -p ~/Downloads/{Images,PDFs,Documents}  ●●●
 
-  ◆ LocalCowork
+  ▍ LocalCowork
     Done! Organized your downloads into 3 folders:
     - Images/ (12 files)
     - Documents/ (5 files)
@@ -43,7 +48,8 @@ LocalCowork is a **pure agentic** AI assistant that uses shell commands, Python,
 | **Conversational** | Remembers context across your session |
 | **Sandboxed Python** | Code runs in isolated Docker containers |
 | **Long-running Tasks** | 10 min shell / 5 min Python timeouts |
-| **Professional CLI** | Clean interface with progress indicators |
+| **Professional CLI** | Rich Panels, Tables, and styled output with progress indicators |
+| **Web UI** | Modern interface with SVG icons, real-time WebSocket updates |
 
 ---
 
@@ -101,7 +107,7 @@ You: analyze sales.csv and show top customers
 
   ◐ Running Python...  ●
 
-  ◆ LocalCowork
+  ▍ LocalCowork
     Sales Analysis (1,247 records):
     - Total revenue: $2.4M
     - Top customer: Acme Corp ($89,400)
@@ -113,7 +119,7 @@ You: search for python asyncio best practices
 
   ◐ Searching the web...  ●
 
-  ◆ LocalCowork
+  ▍ LocalCowork
     Here are some asyncio best practices:
     1. Use async/await consistently - https://...
     2. Avoid blocking calls in async code - https://...
@@ -123,7 +129,7 @@ You: what's the weather API endpoint for Seattle?
 
   ◐ $ curl wttr.in/Seattle?format=3  ●
 
-  ◆ LocalCowork
+  ▍ LocalCowork
     Seattle: ⛅ +12°C
 ```
 
@@ -225,7 +231,7 @@ You: create a report about Q4 sales
 
   ↪ Adjusting: User: actually use bar charts...
 
-  ◆ LocalCowork
+  ▍ LocalCowork
     Done! Created Q4 report with bar charts.
 ```
 
