@@ -167,7 +167,7 @@ function showStatus() {
 • Connection: ${statusBadge.textContent}
 • Model: ${currentModel}
 • Session: ${sessionId ? sessionId.slice(0, 8) + '...' : 'None'}
-• Version: v0.3.0`;
+• Version: v0.4.0`;
     addMessage(status, 'system');
 }
 
