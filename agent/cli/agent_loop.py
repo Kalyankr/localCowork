@@ -61,7 +61,7 @@ def _get_width() -> int:
 def run_agent(model_override: str = None):
     """Main agent loop - handles everything autonomously."""
     from agent.config import settings as app_settings
-    from agent.llm.client import check_ollama_health
+    from agent.llm.client import check_model_exists, check_ollama_health
 
     global settings
     settings = app_settings
@@ -76,6 +76,18 @@ def run_agent(model_override: str = None):
         raise SystemExit(1)
 
     model = model_override or settings.ollama_model
+
+    # Verify model is pulled
+    with console.status(f"[cyan]Checking model {model}...[/cyan]", spinner="dots"):
+        model_ok = check_model_exists(model)
+
+    if not model_ok:
+        print_error(
+            f"Model '{model}' not found",
+            "The model is not pulled in Ollama.",
+        )
+        console.print(f"\n[dim]Pull it with: [cyan]ollama pull {model}[/cyan][/dim]")
+        raise SystemExit(1)
 
     # Always interactive mode
     _interactive_loop(model)
