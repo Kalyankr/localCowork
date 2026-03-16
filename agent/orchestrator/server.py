@@ -8,6 +8,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -42,12 +43,43 @@ from agent.version import __version__
 
 logger = structlog.get_logger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Lifespan: verify Ollama and model are reachable at startup
+# ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Run startup checks before the server accepts requests."""
+    from agent.llm.client import check_model_exists, check_ollama_health
+
+    healthy, error = check_ollama_health()
+    if not healthy:
+        logger.error("ollama_unreachable", error=error)
+        raise SystemExit(
+            f"Cannot connect to Ollama: {error}\nStart it with: ollama serve"
+        )
+
+    model = settings.ollama_model
+    if not check_model_exists(model):
+        logger.error("model_not_found", model=model)
+        raise SystemExit(
+            f"Model '{model}' not found in Ollama.\nPull it with: ollama pull {model}"
+        )
+
+    logger.info("server_startup", model=model, version=__version__)
+    yield
+    logger.info("server_shutdown")
+
+
 app = FastAPI(
     title="LocalCowork API",
     description="Pure agentic local automation - shell + python",
     version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # CORS middleware - allow local development
@@ -547,7 +579,7 @@ async def cancel_task(task_id: str, _auth: bool = Depends(verify_api_key)):
 @app.get("/health")
 async def health():
     """Health check."""
-    return {"status": "ok", "version": "0.3.0"}
+    return {"status": "ok", "version": __version__}
 
 
 # =============================================================================
