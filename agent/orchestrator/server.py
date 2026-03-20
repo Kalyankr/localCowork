@@ -4,6 +4,7 @@ All task execution uses the ReAct agent (shell + python).
 """
 
 import asyncio
+import json
 import secrets
 import time
 import uuid
@@ -39,6 +40,7 @@ from agent.orchestrator.models import (
     WSMessageType,
 )
 from agent.orchestrator.task_manager import TaskState as TMState
+from agent.orchestrator.websocket import MAX_WS_MESSAGE_SIZE, _validate_task_id
 from agent.version import __version__
 
 logger = structlog.get_logger(__name__)
@@ -51,7 +53,11 @@ logger = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Run startup checks before the server accepts requests."""
+    """Run startup checks before the server accepts requests.
+
+    On shutdown: mark executing tasks as failed, notify WebSocket clients,
+    and clean up old workspaces.
+    """
     from agent.llm.client import check_model_exists, check_ollama_health
 
     healthy, error = check_ollama_health()
@@ -70,7 +76,35 @@ async def lifespan(application: FastAPI):
 
     logger.info("server_startup", model=model, version=__version__)
     yield
-    logger.info("server_shutdown")
+
+    # --- Graceful shutdown ---
+    logger.info("server_shutdown_started")
+
+    # 1. Notify connected WebSocket clients
+    from agent.orchestrator.websocket import ws_manager
+
+    try:
+        shutdown_msg = WebSocketMessage.error("Server shutting down")
+        await ws_manager.broadcast_all(shutdown_msg)
+    except Exception:
+        pass  # Best-effort; clients may already be gone
+
+    # 2. Mark any executing tasks as failed so they don't stay stuck
+    tm = get_task_manager()
+    interrupted = 0
+    for task in tm.get_tasks(states=[TMState.EXECUTING, TMState.PLANNING]):
+        tm.update_state(
+            task.id, TMState.FAILED, error="Server shut down during execution"
+        )
+        interrupted += 1
+
+    # 3. Clean up old workspaces (>7 days)
+    try:
+        tm.cleanup_old_workspaces()
+    except Exception as e:
+        logger.warning("workspace_cleanup_error", error=str(e))
+
+    logger.info("server_shutdown_complete", interrupted_tasks=interrupted)
 
 
 app = FastAPI(
@@ -319,24 +353,48 @@ async def websocket_endpoint(websocket: WebSocket):
     await ws.connect(websocket)
     try:
         while True:
-            raw_data = await websocket.receive_json()
+            raw_text = await websocket.receive_text()
+
+            # Size check
+            if len(raw_text) > MAX_WS_MESSAGE_SIZE:
+                error = WebSocketMessage.error(
+                    f"Message too large (max {MAX_WS_MESSAGE_SIZE} bytes)"
+                )
+                await websocket.send_json(error.model_dump())
+                continue
+
+            # Parse JSON
+            try:
+                raw_data = json.loads(raw_text)
+            except (json.JSONDecodeError, ValueError):
+                error = WebSocketMessage.error("Invalid JSON")
+                await websocket.send_json(error.model_dump())
+                continue
+
+            if not isinstance(raw_data, dict):
+                error = WebSocketMessage.error("Expected a JSON object")
+                await websocket.send_json(error.model_dump())
+                continue
+
             try:
                 msg = WebSocketMessage.model_validate(raw_data)
 
                 if msg.type == WSMessageType.SUBSCRIBE:
-                    if msg.task_id:
-                        ws.subscribe(websocket, msg.task_id)
-                        response = WebSocketMessage.subscribed(msg.task_id)
+                    task_id = _validate_task_id(msg.task_id)
+                    if task_id:
+                        ws.subscribe(websocket, task_id)
+                        response = WebSocketMessage.subscribed(task_id)
                         await websocket.send_json(response.model_dump())
                     else:
                         error = WebSocketMessage.error("task_id required for subscribe")
                         await websocket.send_json(error.model_dump())
 
                 elif msg.type == WSMessageType.UNSUBSCRIBE:
-                    if msg.task_id:
-                        ws.task_subs.get(msg.task_id, set()).discard(websocket)
+                    task_id = _validate_task_id(msg.task_id)
+                    if task_id:
+                        ws.task_subs.get(task_id, set()).discard(websocket)
                         await websocket.send_json(
-                            {"type": "unsubscribed", "task_id": msg.task_id}
+                            {"type": "unsubscribed", "task_id": task_id}
                         )
 
                 elif msg.type == WSMessageType.PING:
