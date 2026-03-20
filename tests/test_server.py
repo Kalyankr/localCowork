@@ -1,5 +1,6 @@
 """Tests for the API server endpoints."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -66,7 +67,7 @@ class TestRunEndpoint:
 
     def test_run_missing_request(self, client):
         """Run without request body should return 422."""
-        response = client.post("/run", json={})
+        response = client.post("/run?stream=false", json={})
         assert response.status_code == 422
 
     @patch("agent.orchestrator.react_agent.ReActAgent")
@@ -78,8 +79,81 @@ class TestRunEndpoint:
         mock_agent.run = AsyncMock(side_effect=LLMError("Connection failed"))
         mock_agent_class.return_value = mock_agent
 
-        response = client.post("/run", json={"request": "test"})
+        response = client.post("/run?stream=false", json={"request": "test"})
         assert response.status_code == 503
+
+    @patch("agent.orchestrator.react_agent.ReActAgent")
+    def test_run_streaming_returns_ndjson(self, mock_agent_class, client):
+        """Streaming /run should return application/x-ndjson with events."""
+        from agent.orchestrator.agent_models import AgentState
+
+        mock_state = MagicMock(spec=AgentState)
+        mock_state.status = "completed"
+        mock_state.final_answer = "Done"
+        mock_state.steps = []
+        mock_state.error = None
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_state)
+        mock_agent_class.return_value = mock_agent
+
+        response = client.post("/run?stream=true", json={"request": "hello"})
+        assert response.status_code == 200
+        assert "application/x-ndjson" in response.headers["content-type"]
+
+        # Parse NDJSON lines
+        lines = [
+            json.loads(line)
+            for line in response.text.strip().split("\n")
+            if line.strip()
+        ]
+        assert len(lines) >= 1
+        # Last line should be the complete event
+        last = lines[-1]
+        assert last["type"] == "complete"
+        assert last["status"] == "completed"
+        assert last["response"] == "Done"
+
+    @patch("agent.orchestrator.react_agent.ReActAgent")
+    def test_run_stream_false_returns_json(self, mock_agent_class, client):
+        """Non-streaming /run should return regular JSON."""
+        from agent.orchestrator.agent_models import AgentState
+
+        mock_state = MagicMock(spec=AgentState)
+        mock_state.status = "completed"
+        mock_state.final_answer = "Result"
+        mock_state.steps = [1, 2]
+        mock_state.error = None
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_state)
+        mock_agent_class.return_value = mock_agent
+
+        response = client.post("/run?stream=false", json={"request": "hello"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "completed"
+        assert data["response"] == "Result"
+        assert data["steps"] == 2
+
+    @patch("agent.orchestrator.react_agent.ReActAgent")
+    def test_run_streaming_llm_error(self, mock_agent_class, client):
+        """Streaming /run should emit error event on LLM failure."""
+        from agent.llm.client import LLMError
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=LLMError("Model offline"))
+        mock_agent_class.return_value = mock_agent
+
+        response = client.post("/run?stream=true", json={"request": "fail"})
+        assert response.status_code == 200  # stream always starts 200
+
+        lines = [
+            json.loads(line)
+            for line in response.text.strip().split("\n")
+            if line.strip()
+        ]
+        assert any(line["type"] == "error" for line in lines)
 
 
 class TestWebSocketEndpoint:

@@ -162,7 +162,7 @@ class TestServerHTTPIntegration:
 
     def test_run_endpoint_validation(self, client):
         """Test run endpoint validates request body."""
-        response = client.post("/run", json={})
+        response = client.post("/run?stream=false", json={})
         # Should fail validation - missing 'request' field
         assert response.status_code == 422
 

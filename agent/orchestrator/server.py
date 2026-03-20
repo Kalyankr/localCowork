@@ -23,7 +23,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import ValidationError
 
@@ -59,6 +59,10 @@ async def lifespan(application: FastAPI):
     and clean up old workspaces.
     """
     from agent.llm.client import check_model_exists, check_ollama_health
+    from agent.safety import set_safety_profile
+
+    # Apply configured safety profile
+    set_safety_profile(settings.safety_profile)
 
     healthy, error = check_ollama_health()
     if not healthy:
@@ -462,14 +466,16 @@ async def serve_file(file_path: str):
 async def run_task(
     request: TaskRequest,
     req: Request,
+    stream: bool = True,
     _auth: bool = Depends(verify_api_key),
     _rate: bool = Depends(check_rate_limit),
 ):
     """
     Run a task using the ReAct agent.
 
-    The agent uses shell commands and Python to accomplish tasks,
-    adapting step-by-step based on results.
+    By default returns an NDJSON stream of progress events followed by
+    a final ``complete`` or ``error`` event.  Pass ``?stream=false`` to
+    get a single JSON response after execution finishes (legacy mode).
     """
     from agent.orchestrator.react_agent import ReActAgent
 
@@ -480,57 +486,57 @@ async def run_task(
     task = task_manager.create_task(request.request, session_id)
     task_manager.update_state(task.id, TMState.EXECUTING)
 
+    # Shared queue for streaming events to the HTTP response
+    event_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
     async def on_progress(iteration: int, status: str, thought: str, action: str):
+        event = {
+            "type": "progress",
+            "task_id": task.id,
+            "iteration": iteration,
+            "status": status,
+            "thought": thought,
+            "action": action,
+        }
+        await ws.broadcast(task.id, event)
+        await event_queue.put(event)
+
+    # For server mode, confirmations are handled via WebSocket
+    pending_confirmations: dict[str, asyncio.Event] = {}
+    confirmation_results: dict[str, bool] = {}
+
+    async def on_confirm(command: str, reason: str, message: str) -> bool:
+        """Request confirmation via WebSocket and wait for response."""
+        confirm_id = str(uuid.uuid4())
+        event = asyncio.Event()
+        pending_confirmations[confirm_id] = event
+
         await ws.broadcast(
             task.id,
             {
-                "type": "progress",
+                "type": "confirm_request",
+                "confirm_id": confirm_id,
                 "task_id": task.id,
-                "iteration": iteration,
-                "status": status,
-                "thought": thought,
-                "action": action,
+                "command": command[:200],
+                "reason": reason,
+                "message": message,
             },
         )
 
-    try:
+        try:
+            await asyncio.wait_for(event.wait(), timeout=60.0)
+            return confirmation_results.get(confirm_id, False)
+        except TimeoutError:
+            logger.warning(f"Confirmation timeout for {confirm_id}")
+            return False
+        finally:
+            pending_confirmations.pop(confirm_id, None)
+            confirmation_results.pop(confirm_id, None)
+
+    async def _run_agent() -> dict[str, Any]:
+        """Execute the agent and return the final JSON payload."""
         history = get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
-
-        # For server mode, confirmations are handled via WebSocket
-        # pending_confirmations tracks confirmation requests per task
-        pending_confirmations: dict[str, asyncio.Event] = {}
-        confirmation_results: dict[str, bool] = {}
-
-        async def on_confirm(command: str, reason: str, message: str) -> bool:
-            """Request confirmation via WebSocket and wait for response."""
-            confirm_id = str(uuid.uuid4())
-            event = asyncio.Event()
-            pending_confirmations[confirm_id] = event
-
-            # Send confirmation request to connected clients
-            await ws.broadcast(
-                task.id,
-                {
-                    "type": "confirm_request",
-                    "confirm_id": confirm_id,
-                    "task_id": task.id,
-                    "command": command[:200],
-                    "reason": reason,
-                    "message": message,
-                },
-            )
-
-            # Wait for response (timeout after 60 seconds)
-            try:
-                await asyncio.wait_for(event.wait(), timeout=60.0)
-                return confirmation_results.get(confirm_id, False)
-            except TimeoutError:
-                logger.warning(f"Confirmation timeout for {confirm_id}")
-                return False  # Default to deny on timeout
-            finally:
-                pending_confirmations.pop(confirm_id, None)
-                confirmation_results.pop(confirm_id, None)
 
         agent = ReActAgent(
             sandbox=sandbox,
@@ -552,17 +558,8 @@ async def run_task(
         if state.final_answer:
             add_message(session_id, "assistant", state.final_answer)
 
-        await ws.broadcast(
-            task.id,
-            {
-                "type": "complete",
-                "task_id": task.id,
-                "status": state.status,
-                "response": state.final_answer,
-            },
-        )
-
-        return {
+        result = {
+            "type": "complete",
             "task_id": task.id,
             "session_id": session_id,
             "status": state.status,
@@ -570,13 +567,63 @@ async def run_task(
             "steps": len(state.steps),
         }
 
-    except LLMError as e:
-        task_manager.update_state(task.id, TMState.FAILED, str(e))
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        logger.exception("Agent failed")
-        task_manager.update_state(task.id, TMState.FAILED, str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        await ws.broadcast(task.id, result)
+        return result
+
+    # --- Non-streaming (legacy) mode ---
+    if not stream:
+        try:
+            result = await _run_agent()
+            return result
+        except LLMError as e:
+            task_manager.update_state(task.id, TMState.FAILED, str(e))
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception as e:
+            logger.exception("Agent failed")
+            task_manager.update_state(task.id, TMState.FAILED, str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # --- Streaming (default) mode ---
+    async def event_generator():
+        """Yield NDJSON lines as the agent progresses."""
+        agent_task = asyncio.create_task(_run_agent())
+        try:
+            while True:
+                # Drain queued progress events
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                except TimeoutError:
+                    # No event yet — check if agent finished
+                    if agent_task.done():
+                        break
+                    continue
+
+                if event is None:
+                    break
+                yield json.dumps(event) + "\n"
+
+            # Agent finished — emit final result or error
+            result = agent_task.result()
+            yield json.dumps(result) + "\n"
+
+        except LLMError as e:
+            task_manager.update_state(task.id, TMState.FAILED, str(e))
+            yield (
+                json.dumps({"type": "error", "task_id": task.id, "error": str(e)})
+                + "\n"
+            )
+        except Exception as e:
+            logger.exception("Agent failed")
+            task_manager.update_state(task.id, TMState.FAILED, str(e))
+            yield (
+                json.dumps({"type": "error", "task_id": task.id, "error": str(e)})
+                + "\n"
+            )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="application/x-ndjson",
+    )
 
 
 # Legacy alias
@@ -584,11 +631,12 @@ async def run_task(
 async def run_agent(
     request: TaskRequest,
     req: Request,
+    stream: bool = True,
     _auth: bool = Depends(verify_api_key),
     _rate: bool = Depends(check_rate_limit),
 ):
     """Alias for /run (backward compatibility)."""
-    return await run_task(request, req, _auth, _rate)
+    return await run_task(request, req, stream, _auth, _rate)
 
 
 @app.get("/tasks")
