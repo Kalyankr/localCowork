@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     # Whether to require confirmation for paths outside allowed_paths
     require_path_confirmation: bool = True
 
+    # Safety profile: "strict" (default), "moderate", or "permissive"
+    safety_profile: str = "strict"
+
     # Logging Settings
     json_logs: bool = False  # If True, output structured JSON logs
 

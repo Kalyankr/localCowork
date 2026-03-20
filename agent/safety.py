@@ -2,6 +2,11 @@
 
 This module provides utilities to detect destructive operations
 and require user confirmation before execution.
+
+Safety profiles allow tuning how restrictive the agent is:
+  - strict   (default) — blocks system commands, package managers, etc.
+  - moderate — allows package managers with confirmation, fewer blocks
+  - permissive — only blocks truly system-critical commands
 """
 
 import re
@@ -18,19 +23,42 @@ class DangerLevel(str, Enum):
     BLOCKED = "blocked"  # Never allowed
 
 
-# Commands that delete or destroy data
-DESTRUCTIVE_COMMANDS = {
+class SafetyProfile(str, Enum):
+    """Predefined safety profiles controlling which commands are blocked."""
+
+    STRICT = "strict"
+    MODERATE = "moderate"
+    PERMISSIVE = "permissive"
+
+
+# ---------------------------------------------------------------------------
+# Per-profile command tables
+# ---------------------------------------------------------------------------
+
+# Always blocked in every profile (truly catastrophic)
+_ALWAYS_BLOCKED = {
+    "shutdown",
+    "reboot",
+    "halt",
+    "poweroff",
+    "dd",
+    "mkfs",
+    "fdisk",
+    "parted",
+}
+
+_STRICT_COMMANDS: dict[str, DangerLevel] = {
     # File deletion
     "rm": DangerLevel.DANGEROUS,
     "rmdir": DangerLevel.DANGEROUS,
     "unlink": DangerLevel.DANGEROUS,
     "shred": DangerLevel.DANGEROUS,
-    # Dangerous file operations
+    # Disk
     "dd": DangerLevel.BLOCKED,
     "mkfs": DangerLevel.BLOCKED,
-    # Move/overwrite can be destructive
-    "mv": DangerLevel.WARNING,  # Can overwrite files
-    # System commands - always blocked
+    # Move/overwrite
+    "mv": DangerLevel.WARNING,
+    # System commands
     "sudo": DangerLevel.BLOCKED,
     "su": DangerLevel.BLOCKED,
     "chmod": DangerLevel.WARNING,
@@ -42,24 +70,24 @@ DESTRUCTIVE_COMMANDS = {
     "reboot": DangerLevel.BLOCKED,
     "halt": DangerLevel.BLOCKED,
     "poweroff": DangerLevel.BLOCKED,
-    # Disk operations - blocked
+    # Disk operations
     "fdisk": DangerLevel.BLOCKED,
     "parted": DangerLevel.BLOCKED,
     "mount": DangerLevel.BLOCKED,
     "umount": DangerLevel.BLOCKED,
-    # User management - blocked
+    # User management
     "passwd": DangerLevel.BLOCKED,
     "useradd": DangerLevel.BLOCKED,
     "userdel": DangerLevel.BLOCKED,
     "usermod": DangerLevel.BLOCKED,
-    # Network/reverse shell - blocked
+    # Network
     "nc": DangerLevel.BLOCKED,
     "netcat": DangerLevel.BLOCKED,
     "ncat": DangerLevel.BLOCKED,
-    # Scheduled tasks - blocked
+    # Scheduled tasks
     "crontab": DangerLevel.BLOCKED,
     "at": DangerLevel.BLOCKED,
-    # Package management - warning
+    # Package managers
     "pip": DangerLevel.WARNING,
     "pip3": DangerLevel.WARNING,
     "apt": DangerLevel.BLOCKED,
@@ -67,6 +95,113 @@ DESTRUCTIVE_COMMANDS = {
     "yum": DangerLevel.BLOCKED,
     "dnf": DangerLevel.BLOCKED,
 }
+
+_MODERATE_COMMANDS: dict[str, DangerLevel] = {
+    # File deletion — still dangerous
+    "rm": DangerLevel.DANGEROUS,
+    "rmdir": DangerLevel.DANGEROUS,
+    "unlink": DangerLevel.DANGEROUS,
+    "shred": DangerLevel.DANGEROUS,
+    # Disk
+    "dd": DangerLevel.BLOCKED,
+    "mkfs": DangerLevel.BLOCKED,
+    # Move/overwrite
+    "mv": DangerLevel.WARNING,
+    # System commands — sudo allowed with confirmation
+    "sudo": DangerLevel.DANGEROUS,
+    "su": DangerLevel.BLOCKED,
+    "chmod": DangerLevel.WARNING,
+    "chown": DangerLevel.WARNING,
+    "kill": DangerLevel.WARNING,
+    "pkill": DangerLevel.WARNING,
+    "killall": DangerLevel.WARNING,
+    "shutdown": DangerLevel.BLOCKED,
+    "reboot": DangerLevel.BLOCKED,
+    "halt": DangerLevel.BLOCKED,
+    "poweroff": DangerLevel.BLOCKED,
+    # Disk operations
+    "fdisk": DangerLevel.BLOCKED,
+    "parted": DangerLevel.BLOCKED,
+    "mount": DangerLevel.DANGEROUS,
+    "umount": DangerLevel.DANGEROUS,
+    # User management — confirmation instead of block
+    "passwd": DangerLevel.DANGEROUS,
+    "useradd": DangerLevel.DANGEROUS,
+    "userdel": DangerLevel.BLOCKED,
+    "usermod": DangerLevel.DANGEROUS,
+    # Network — confirmation instead of block
+    "nc": DangerLevel.DANGEROUS,
+    "netcat": DangerLevel.DANGEROUS,
+    "ncat": DangerLevel.DANGEROUS,
+    # Scheduled tasks
+    "crontab": DangerLevel.DANGEROUS,
+    "at": DangerLevel.DANGEROUS,
+    # Package managers — allowed with confirmation
+    "pip": DangerLevel.WARNING,
+    "pip3": DangerLevel.WARNING,
+    "apt": DangerLevel.DANGEROUS,
+    "apt-get": DangerLevel.DANGEROUS,
+    "yum": DangerLevel.DANGEROUS,
+    "dnf": DangerLevel.DANGEROUS,
+}
+
+_PERMISSIVE_COMMANDS: dict[str, DangerLevel] = {
+    # File deletion — still needs confirmation
+    "rm": DangerLevel.WARNING,
+    "rmdir": DangerLevel.WARNING,
+    "unlink": DangerLevel.WARNING,
+    "shred": DangerLevel.DANGEROUS,
+    # Disk — always blocked
+    "dd": DangerLevel.BLOCKED,
+    "mkfs": DangerLevel.BLOCKED,
+    # System
+    "sudo": DangerLevel.WARNING,
+    "su": DangerLevel.DANGEROUS,
+    "shutdown": DangerLevel.BLOCKED,
+    "reboot": DangerLevel.BLOCKED,
+    "halt": DangerLevel.BLOCKED,
+    "poweroff": DangerLevel.BLOCKED,
+    "fdisk": DangerLevel.BLOCKED,
+    "parted": DangerLevel.BLOCKED,
+}
+
+_PROFILE_COMMANDS: dict[SafetyProfile, dict[str, DangerLevel]] = {
+    SafetyProfile.STRICT: _STRICT_COMMANDS,
+    SafetyProfile.MODERATE: _MODERATE_COMMANDS,
+    SafetyProfile.PERMISSIVE: _PERMISSIVE_COMMANDS,
+}
+
+# Module-level active profile (set via set_safety_profile / load_profile)
+_active_profile: SafetyProfile = SafetyProfile.STRICT
+
+
+def get_safety_profile() -> SafetyProfile:
+    """Return the currently active safety profile."""
+    return _active_profile
+
+
+def set_safety_profile(profile: SafetyProfile | str) -> None:
+    """Set the active safety profile.
+
+    Args:
+        profile: A SafetyProfile enum or its string name
+                 ("strict", "moderate", "permissive").
+    """
+    global _active_profile  # noqa: PLW0603
+    if isinstance(profile, str):
+        profile = SafetyProfile(profile.lower())
+    _active_profile = profile
+
+
+def get_commands_for_profile(
+    profile: SafetyProfile | None = None,
+) -> dict[str, DangerLevel]:
+    """Return the command→danger mapping for a profile."""
+    return _PROFILE_COMMANDS[profile or _active_profile]
+
+
+# Backward-compatible alias used by existing code & tests
+DESTRUCTIVE_COMMANDS = _STRICT_COMMANDS
 
 # Dangerous flags that make commands more destructive
 DANGEROUS_FLAGS = {
@@ -103,6 +238,8 @@ def analyze_command(command: str) -> tuple[DangerLevel, str | None]:
     """
     Analyze a shell command for dangerous operations.
 
+    Uses the currently active safety profile to determine danger levels.
+
     Args:
         command: The shell command to analyze
 
@@ -113,6 +250,7 @@ def analyze_command(command: str) -> tuple[DangerLevel, str | None]:
         return DangerLevel.SAFE, None
 
     command = command.strip()
+    commands = get_commands_for_profile()
 
     # Try to parse the command
     try:
@@ -127,9 +265,9 @@ def analyze_command(command: str) -> tuple[DangerLevel, str | None]:
     # Get base command (handle paths like /bin/rm)
     base_cmd = parts[0].split("/")[-1]
 
-    # Check if base command is in our list
-    if base_cmd in DESTRUCTIVE_COMMANDS:
-        level = DESTRUCTIVE_COMMANDS[base_cmd]
+    # Check if base command is in the active profile's command table
+    if base_cmd in commands:
+        level = commands[base_cmd]
 
         if level == DangerLevel.BLOCKED:
             return DangerLevel.BLOCKED, f"Command '{base_cmd}' is not allowed"
@@ -206,9 +344,10 @@ def analyze_python_code(code: str) -> tuple[DangerLevel, str | None]:
 
     # Check for subprocess with dangerous commands
     if "subprocess" in code:
-        for cmd in DESTRUCTIVE_COMMANDS:
+        commands = get_commands_for_profile()
+        for cmd in commands:
             if cmd in code:
-                level = DESTRUCTIVE_COMMANDS[cmd]
+                level = commands[cmd]
                 if level in (DangerLevel.DANGEROUS, DangerLevel.BLOCKED):
                     return level, f"Subprocess executing '{cmd}'"
 

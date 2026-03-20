@@ -2,10 +2,14 @@
 
 from agent.safety import (
     DangerLevel,
+    SafetyProfile,
     analyze_command,
     analyze_python_code,
     format_confirmation_message,
     get_affected_paths,
+    get_commands_for_profile,
+    get_safety_profile,
+    set_safety_profile,
 )
 
 
@@ -201,3 +205,92 @@ class TestFormatConfirmationMessage:
 
         assert "file0.txt" in message
         assert "and 10 more" in message
+
+
+class TestSafetyProfiles:
+    """Tests for configurable safety profiles."""
+
+    def setup_method(self):
+        """Reset to strict before each test."""
+        set_safety_profile(SafetyProfile.STRICT)
+
+    def teardown_method(self):
+        """Reset to strict after each test."""
+        set_safety_profile(SafetyProfile.STRICT)
+
+    def test_default_profile_is_strict(self):
+        set_safety_profile(SafetyProfile.STRICT)
+        assert get_safety_profile() == SafetyProfile.STRICT
+
+    def test_set_profile_by_string(self):
+        set_safety_profile("moderate")
+        assert get_safety_profile() == SafetyProfile.MODERATE
+
+    def test_set_profile_by_enum(self):
+        set_safety_profile(SafetyProfile.PERMISSIVE)
+        assert get_safety_profile() == SafetyProfile.PERMISSIVE
+
+    def test_strict_blocks_sudo(self):
+        set_safety_profile(SafetyProfile.STRICT)
+        level, _ = analyze_command("sudo ls")
+        assert level == DangerLevel.BLOCKED
+
+    def test_moderate_allows_sudo_with_confirmation(self):
+        set_safety_profile(SafetyProfile.MODERATE)
+        level, _ = analyze_command("sudo ls")
+        assert level == DangerLevel.DANGEROUS  # needs confirmation, not blocked
+
+    def test_permissive_warns_on_sudo(self):
+        set_safety_profile(SafetyProfile.PERMISSIVE)
+        level, _ = analyze_command("sudo ls")
+        assert level == DangerLevel.WARNING
+
+    def test_strict_blocks_apt(self):
+        set_safety_profile(SafetyProfile.STRICT)
+        level, _ = analyze_command("apt install vim")
+        assert level == DangerLevel.BLOCKED
+
+    def test_moderate_allows_apt_with_confirmation(self):
+        set_safety_profile(SafetyProfile.MODERATE)
+        level, _ = analyze_command("apt install vim")
+        assert level == DangerLevel.DANGEROUS
+
+    def test_permissive_allows_apt(self):
+        """Permissive profile doesn't list apt at all — should be safe."""
+        set_safety_profile(SafetyProfile.PERMISSIVE)
+        level, _ = analyze_command("apt install vim")
+        assert level == DangerLevel.SAFE
+
+    def test_rm_dangerous_in_all_profiles(self):
+        """rm should always require at least a warning."""
+        for profile in SafetyProfile:
+            set_safety_profile(profile)
+            level, _ = analyze_command("rm file.txt")
+            assert level in (DangerLevel.DANGEROUS, DangerLevel.WARNING), (
+                f"rm should not be SAFE in {profile.value}"
+            )
+
+    def test_catastrophic_always_blocked(self):
+        """shutdown/reboot/dd/mkfs are blocked in every profile."""
+        for cmd in ("shutdown", "reboot", "dd if=/dev/zero", "mkfs /dev/sda"):
+            for profile in SafetyProfile:
+                set_safety_profile(profile)
+                level, _ = analyze_command(cmd)
+                assert level == DangerLevel.BLOCKED, (
+                    f"'{cmd}' should be BLOCKED in {profile.value}"
+                )
+
+    def test_get_commands_for_profile(self):
+        strict = get_commands_for_profile(SafetyProfile.STRICT)
+        moderate = get_commands_for_profile(SafetyProfile.MODERATE)
+        permissive = get_commands_for_profile(SafetyProfile.PERMISSIVE)
+
+        # Strict has more commands than permissive
+        assert len(strict) > len(permissive)
+        assert len(moderate) >= len(permissive)
+
+    def test_invalid_profile_string_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            set_safety_profile("nonexistent")

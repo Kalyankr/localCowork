@@ -62,9 +62,13 @@ def run_agent(model_override: str = None):
     """Main agent loop - handles everything autonomously."""
     from agent.config import settings as app_settings
     from agent.llm.client import check_model_exists, check_ollama_health
+    from agent.safety import set_safety_profile
 
     global settings
     settings = app_settings
+
+    # Apply configured safety profile
+    set_safety_profile(settings.safety_profile)
 
     # Check connection
     with console.status("[cyan]Connecting...[/cyan]", spinner="dots"):
