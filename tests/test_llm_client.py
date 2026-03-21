@@ -8,7 +8,7 @@ import pytest
 class TestCallLLM:
     """Tests for the call_llm function."""
 
-    @patch("agent.llm.client._get_client")
+    @patch("agent.llm.ollama_backend._get_client")
     def test_call_llm_success(self, mock_get_client):
         """call_llm should return response text on success."""
         from agent.llm.client import call_llm
@@ -22,7 +22,7 @@ class TestCallLLM:
         assert result == "Hello, world!"
         mock_client.generate.assert_called_once()
 
-    @patch("agent.llm.client._get_client")
+    @patch("agent.llm.ollama_backend._get_client")
     def test_call_llm_with_json_mode(self, mock_get_client):
         """call_llm with force_json should use json format."""
         from agent.llm.client import call_llm
@@ -37,7 +37,7 @@ class TestCallLLM:
         call_args = mock_client.generate.call_args
         assert call_args.kwargs.get("format") == "json"
 
-    @patch("agent.llm.client._get_client")
+    @patch("agent.llm.ollama_backend._get_client")
     def test_call_llm_connection_error(self, mock_get_client):
         """call_llm should raise LLMError on connection failure."""
         from ollama import RequestError
@@ -135,7 +135,7 @@ class TestRepairJSON:
 class TestCallLLMChat:
     """Tests for the call_llm_chat function."""
 
-    @patch("agent.llm.client._get_client")
+    @patch("agent.llm.ollama_backend._get_client")
     def test_call_llm_chat_success(self, mock_get_client):
         """call_llm_chat should return assistant message content."""
         from agent.llm.client import call_llm_chat
@@ -152,7 +152,7 @@ class TestCallLLMChat:
 
         assert result == "I'm doing well, thanks!"
 
-    @patch("agent.llm.client._get_client")
+    @patch("agent.llm.ollama_backend._get_client")
     def test_call_llm_chat_with_model_override(self, mock_get_client):
         """call_llm_chat should use provided model override."""
         from agent.llm.client import call_llm_chat
@@ -174,7 +174,7 @@ class TestAsyncLLMFunctions:
     """Tests for async LLM client functions."""
 
     @pytest.mark.asyncio
-    @patch("agent.llm.client._get_async_client")
+    @patch("agent.llm.ollama_backend._get_async_client")
     async def test_call_llm_async_success(self, mock_get_async_client):
         """call_llm_async should return response text on success."""
         from agent.llm.client import call_llm_async
@@ -189,7 +189,7 @@ class TestAsyncLLMFunctions:
         mock_client.generate.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("agent.llm.client._get_async_client")
+    @patch("agent.llm.ollama_backend._get_async_client")
     async def test_call_llm_async_with_json_mode(self, mock_get_async_client):
         """call_llm_async with force_json should use json format."""
         from agent.llm.client import call_llm_async
@@ -205,7 +205,7 @@ class TestAsyncLLMFunctions:
         assert call_args.kwargs.get("format") == "json"
 
     @pytest.mark.asyncio
-    @patch("agent.llm.client._get_async_client")
+    @patch("agent.llm.ollama_backend._get_async_client")
     async def test_call_llm_chat_async_success(self, mock_get_async_client):
         """call_llm_chat_async should return assistant message content."""
         from agent.llm.client import call_llm_chat_async
@@ -249,7 +249,7 @@ class TestAsyncLLMFunctions:
         assert mock_call_llm_async.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("agent.llm.client._get_async_client")
+    @patch("agent.llm.ollama_backend._get_async_client")
     async def test_call_llm_async_connection_error(self, mock_get_async_client):
         """call_llm_async should raise LLMError on connection failure."""
         from ollama import RequestError
