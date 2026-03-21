@@ -33,10 +33,7 @@ REACT_STEP_PROMPT = """You are LocalCowork, an AI assistant with full access to 
 
 ## TOOLS
 
-**shell** - Run bash commands
-**python** - Run Python code (pandas, requests, openpyxl, etc. available)
-**web_search** - Search the web (DuckDuckGo). Args: {{"query": "search terms", "max_results": 5}}
-**fetch_webpage** - Fetch and extract text from a URL. Args: {{"url": "https://..."}}
+{tool_descriptions}
 
 ## SAFETY
 Destructive operations (rm, delete, overwrite) will prompt user for confirmation.
@@ -112,7 +109,7 @@ For conversation:
 
 For running a command:
 ```json
-{{"thought": "...", "is_complete": false, "action": {{"tool": "shell|python|web_search|fetch_webpage", "args": {{...}}}}}}
+{{"thought": "...", "is_complete": false, "action": {{"tool": "<tool_name>", "args": {{...}}}}}}
 ```
 
 YOUR JSON:"""

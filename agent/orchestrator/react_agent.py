@@ -19,6 +19,15 @@ from typing import Any
 import structlog
 
 from agent.config import settings
+from agent.events import (
+    AGENT_COMPLETE,
+    AGENT_ERROR,
+    AGENT_PROGRESS,
+    AGENT_STEP,
+    TOOL_EXECUTE,
+    TOOL_RESULT,
+    event_bus,
+)
 from agent.llm.client import call_llm_json_async
 from agent.llm.prompts import (
     ERROR_RECOVERY_PROMPT,
@@ -53,7 +62,8 @@ from agent.safety import (
 )
 from agent.sandbox.sandbox_runner import Sandbox
 from agent.tokens import truncate_to_tokens
-from agent.web import fetch_webpage, web_search
+from agent.tools.builtin import register_builtin_tools
+from agent.tools.registry import tool_registry
 
 logger = structlog.get_logger(__name__)
 
@@ -175,6 +185,9 @@ class ReActAgent:
         self.steering_queue = steering_queue
         self._is_sub_agent = False  # Track if this is a sub-agent
         self._steering_inputs: list[str] = []  # Accumulated steering from user
+
+        # Register built-in tools (idempotent — re-registers if already present)
+        register_builtin_tools(sandbox)
 
     async def _check_steering(self, state: AgentState) -> None:
         """
@@ -522,6 +535,15 @@ class ReActAgent:
                     self.on_progress(
                         iteration, "thinking", thought.reasoning[:100], action_desc
                     )
+                await event_bus.emit_async(
+                    AGENT_STEP,
+                    iteration=iteration,
+                    thought=thought.reasoning[:100],
+                    action=f"{action.tool}: {action.description}"
+                    if action
+                    else "thinking...",
+                    goal=state.goal,
+                )
 
                 # Check if this is a direct response (conversation mode)
                 if direct_response and thought.is_goal_complete:
@@ -698,6 +720,13 @@ class ReActAgent:
                         thought.reasoning[:100],
                         f"{action.tool}" if action else "",
                     )
+                await event_bus.emit_async(
+                    AGENT_PROGRESS,
+                    iteration=iteration,
+                    status=step.result.status if step.result else "executing",
+                    thought=thought.reasoning[:100],
+                    action=f"{action.tool}" if action else "",
+                )
 
             except Exception as e:
                 logger.error("iteration_error", iteration=iteration, error=str(e))
@@ -720,6 +749,25 @@ class ReActAgent:
             state.error = f"Reached maximum iterations ({self.max_iterations})"
 
         logger.info("react_agent_finished", status=state.status)
+
+        # Emit completion/error event
+        if state.status in ("completed", "partial"):
+            await event_bus.emit_async(
+                AGENT_COMPLETE,
+                goal=state.goal,
+                status=state.status,
+                response=state.final_answer,
+                steps=len(state.steps),
+            )
+        elif state.status in ("failed", "max_iterations"):
+            await event_bus.emit_async(
+                AGENT_ERROR,
+                goal=state.goal,
+                status=state.status,
+                error=state.error,
+                steps=len(state.steps),
+            )
+
         return state
 
     async def _think(
@@ -759,6 +807,7 @@ class ReActAgent:
             ),
             cwd=os.getcwd(),
             platform=f"{platform.system()} {platform.release()}",
+            tool_descriptions=tool_registry.get_tool_descriptions(),
         )
 
         try:
@@ -903,6 +952,8 @@ class ReActAgent:
     ) -> StepResult:
         """Execute a single action and return the result."""
         try:
+            await event_bus.emit_async(TOOL_EXECUTE, tool=action.tool, args=action.args)
+
             # Safety check before execution
             is_safe, error = await self._check_safety(action)
             if not is_safe:
@@ -912,140 +963,49 @@ class ReActAgent:
                     error=error,
                 )
 
-            # Handle Python code execution
+            # Python special handling: inject context variables
             if action.tool == "python":
                 code = action.args.get("code", "")
-                full_code = self._inject_context(code, context)
-                result = await self.sandbox.run_python(full_code)
+                action.args["code"] = self._inject_context(code, context)
 
-                if result.get("error"):
-                    return StepResult(
-                        step_id=f"action_{action.tool}",
-                        status="error",
-                        output=None,  # Don't expose raw output on error
-                        error=_sanitize_error(result.get("error"), "Python script"),
-                    )
-
-                # Parse output for variables
-                output = result.get("output", "")
-                parsed_output = self._parse_python_output(output)
-
+            # Look up tool in registry
+            tool = tool_registry.get(action.tool)
+            if tool is None:
+                tool_names = tool_registry.get_tool_names()
                 return StepResult(
                     step_id=f"action_{action.tool}",
-                    status="success",
-                    output=parsed_output,
+                    status="error",
+                    error=f"Unknown tool: {action.tool}. "
+                    f"Available: {', '.join(tool_names) or 'none'}.",
                 )
 
-            # Handle shell command execution
-            if action.tool == "shell":
-                command = action.args.get("command", "")
-                cwd = action.args.get("cwd")
+            result = await tool.execute(action.args, context)
 
-                # Expand ~ in cwd if provided, otherwise use home
-                cwd = os.path.expanduser(cwd) if cwd else os.path.expanduser("~")
-
-                # Expand ~ in command itself
-                command = command.replace("~/", os.path.expanduser("~") + "/")
-
-                try:
-                    proc = await asyncio.create_subprocess_shell(
-                        command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=cwd,
-                        env={**os.environ, "HOME": os.path.expanduser("~")},
-                    )
-
-                    try:
-                        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                            proc.communicate(),
-                            timeout=settings.shell_timeout,
-                        )
-                    except TimeoutError:
-                        proc.kill()
-                        await proc.wait()
-                        return StepResult(
-                            step_id="shell",
-                            status="error",
-                            error=f"Command timed out after {settings.shell_timeout} seconds",
-                        )
-
-                    output = stdout_bytes.decode(errors="replace")
-                    stderr = stderr_bytes.decode(errors="replace")
-
-                    # Non-zero exit isn't always an error (e.g., grep no match)
-                    # Return both stdout and stderr for context
-                    if proc.returncode != 0:
-                        raw_error = (
-                            f"Exit {proc.returncode}: {stderr}"
-                            if stderr
-                            else f"Exit {proc.returncode}"
-                        )
-                        return StepResult(
-                            step_id="shell",
-                            status="error",
-                            output=None,  # Don't expose raw output on error
-                            error=_sanitize_error(raw_error, "shell command"),
-                        )
-
-                    # Only return stdout on success, ignore stderr (warnings/progress)
-                    return StepResult(
-                        step_id="shell",
-                        status="success",
-                        output=output.strip() or "(no output)",
-                    )
-                except Exception as e:
-                    return StepResult(
-                        step_id="shell",
-                        status="error",
-                        error=_sanitize_error(str(e), "shell command"),
-                    )
-
-            # Handle web search
-            if action.tool == "web_search":
-                query = action.args.get("query", "")
-                max_results = action.args.get("max_results", 5)
-                result = web_search(query, max_results=max_results)
-
-                if result.get("error"):
-                    return StepResult(
-                        step_id="web_search",
-                        status="error",
-                        error=result["error"],
-                    )
-
+            if result["status"] == "error":
                 return StepResult(
-                    step_id="web_search",
-                    status="success",
-                    output=result,
+                    step_id=f"action_{action.tool}",
+                    status="error",
+                    output=None,
+                    error=_sanitize_error(
+                        result.get("error", "Unknown error"), action.tool
+                    ),
                 )
 
-            # Handle webpage fetching
-            if action.tool == "fetch_webpage":
-                url = action.args.get("url", "")
-                result = fetch_webpage(url)
+            output = result.get("output", "")
+            # Python special handling: parse output for variables
+            if action.tool == "python" and isinstance(output, str):
+                output = self._parse_python_output(output)
 
-                if result.get("error"):
-                    return StepResult(
-                        step_id="fetch_webpage",
-                        status="error",
-                        error=result["error"],
-                    )
-
-                return StepResult(
-                    step_id="fetch_webpage",
-                    status="success",
-                    output=result,
-                )
-
-            # Unknown tool
             return StepResult(
                 step_id=f"action_{action.tool}",
-                status="error",
-                error=f"Unknown tool: {action.tool}. Use 'shell', 'python', 'web_search', or 'fetch_webpage'.",
+                status="success",
+                output=output,
             )
 
         except Exception as e:
+            await event_bus.emit_async(
+                TOOL_RESULT, tool=action.tool, status="error", error=str(e)
+            )
             return StepResult(
                 step_id=f"action_{action.tool}",
                 status="error",
