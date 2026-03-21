@@ -1,174 +1,86 @@
-"""LLM client using official Ollama Python library.
+"""LLM client — model-agnostic facade.
 
-This module provides a clean interface to Ollama using the official library
-instead of raw HTTP requests. Benefits:
-- Cleaner API with typed responses
-- Built-in connection management
-- Full async support for non-blocking operations
-- Streaming support for real-time token delivery
-- Better error handling
+All public functions delegate to the active ``LLMBackend`` (default:
+``OllamaBackend``).  To switch backends at runtime call
+``set_backend()``.  Existing imports (``call_llm``, ``LLMError``, etc.)
+continue to work unchanged.
 """
 
-import asyncio
+from __future__ import annotations
+
 import json
 import re
 from collections.abc import AsyncIterator
 from typing import Any
 
-import ollama
 import structlog
-from ollama import AsyncClient, RequestError, ResponseError
 
 from agent.config import get_settings
+from agent.llm.backend import LLMBackend
+from agent.llm.ollama_backend import LLMError, OllamaBackend
 
 logger = structlog.get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Backend management
+# ---------------------------------------------------------------------------
 
-class LLMError(Exception):
-    """Custom exception for LLM-related errors."""
-
-    pass
-
-
-# Create client instances (reusable, connection pooled)
-_client: ollama.Client | None = None
-_async_client: AsyncClient | None = None
-_async_client_loop: asyncio.AbstractEventLoop | None = None
+_backend: LLMBackend | None = None
 
 
-def _get_host() -> str:
-    """Get the Ollama host URL."""
-    s = get_settings()
-    host = s.ollama_url.replace("/api/generate", "").replace("/api/chat", "")
-    if host.endswith("/"):
-        host = host[:-1]
-    return host
+def get_backend() -> LLMBackend:
+    """Return the active LLM backend (creates Ollama default on first call)."""
+    global _backend
+    if _backend is None:
+        _backend = OllamaBackend()
+    return _backend
 
 
-def _get_client() -> ollama.Client:
-    """Get or create the Ollama sync client singleton."""
-    global _client
-    if _client is None:
-        s = get_settings()
-        _client = ollama.Client(host=_get_host(), timeout=s.ollama_timeout)
-    return _client
+def set_backend(backend: LLMBackend) -> None:
+    """Replace the active LLM backend."""
+    global _backend
+    _backend = backend
 
 
-def _get_async_client() -> AsyncClient:
-    """Get or create the Ollama async client singleton.
+# Re-export LLMError so existing ``from agent.llm.client import LLMError`` works
+__all__ = [
+    "LLMError",
+    "get_backend",
+    "set_backend",
+    "call_llm",
+    "call_llm_chat",
+    "call_llm_json",
+    "call_llm_async",
+    "call_llm_chat_async",
+    "call_llm_json_async",
+    "call_llm_stream_async",
+    "call_llm_chat_stream_async",
+    "call_llm_chat_stream",
+    "repair_json",
+    "list_models",
+    "check_model_exists",
+    "check_ollama_health",
+]
 
-    Creates a new client if:
-    - No client exists yet
-    - The event loop has changed (previous loop was closed)
-    """
-    global _async_client, _async_client_loop
 
-    try:
-        current_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        current_loop = None
-
-    # Create new client if loop changed or client doesn't exist
-    if _async_client is None or _async_client_loop is not current_loop:
-        s = get_settings()
-        _async_client = AsyncClient(host=_get_host(), timeout=s.ollama_timeout)
-        _async_client_loop = current_loop
-        logger.debug("Created new AsyncClient for current event loop")
-
-    return _async_client
+# =============================================================================
+# Synchronous functions
+# =============================================================================
 
 
 def call_llm(prompt: str, force_json: bool = False) -> str:
-    """
-    Calls Ollama and returns raw text output.
-
-    Args:
-        prompt: The prompt to send to the model
-        force_json: If True, use Ollama's JSON mode to force valid JSON output
-
-    Returns:
-        The model's response text
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_client()
-        s = get_settings()
-        logger.debug(
-            f"Calling LLM with model={s.ollama_model}, force_json={force_json}"
-        )
-
-        kwargs = {
-            "model": s.ollama_model,
-            "prompt": prompt,
-            "options": {
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-        }
-
-        # Use Ollama's native JSON mode if requested
-        if force_json:
-            kwargs["format"] = "json"
-
-        response = client.generate(**kwargs)
-
-        return response.response
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except Exception as e:
-        raise LLMError(f"LLM request failed: {e}")
+    """Call the LLM and return raw text."""
+    return get_backend().generate(prompt, force_json=force_json)
 
 
 def call_llm_chat(messages: list[dict[str, str]], model: str | None = None) -> str:
-    """
-    Calls Ollama with chat messages format.
-
-    Args:
-        messages: List of message dicts with 'role' and 'content' keys
-        model: Optional model override
-
-    Returns:
-        The assistant's response content
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_client()
-        s = get_settings()
-        active_model = model or s.ollama_model
-        logger.debug(
-            f"Calling LLM chat with model={active_model}, {len(messages)} messages"
-        )
-
-        response = client.chat(
-            model=active_model,
-            messages=messages,
-            options={
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-        )
-
-        return response.message.content
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except Exception as e:
-        raise LLMError(f"LLM chat request failed: {e}") from e
+    """Call the LLM with chat messages."""
+    return get_backend().chat(messages, model=model)
 
 
 def call_llm_json(prompt: str) -> dict[str, Any]:
     """
-    Calls Ollama and guarantees valid JSON output.
-    Uses Ollama's native JSON mode for reliable structured output.
+    Call the LLM and guarantee valid JSON output.
     Retries with repair logic if JSON parsing still fails.
 
     Args:
@@ -340,187 +252,39 @@ def repair_json(text: str) -> dict[str, Any]:
 
 
 def list_models() -> list[str]:
-    """List available models from Ollama.
-
-    Returns:
-        List of model names
-    """
-    try:
-        client = _get_client()
-        response = client.list()
-        return [model.model for model in response.models]
-    except Exception as e:
-        logger.warning(f"Failed to list models: {e}")
-        return []
+    """List available models."""
+    return get_backend().list_models()
 
 
 def check_model_exists(model_name: str | None = None) -> bool:
-    """Check if a model exists in Ollama.
-
-    Args:
-        model_name: Model to check, defaults to configured model
-
-    Returns:
-        True if model exists
-    """
-    model = model_name or get_settings().ollama_model
-    try:
-        models = list_models()
-        # Check for exact match or match without tag
-        return any(m == model or m.split(":")[0] == model.split(":")[0] for m in models)
-    except Exception:
-        return False
+    """Check if a model is available."""
+    return get_backend().check_model_exists(model_name)
 
 
 def check_ollama_health() -> tuple[bool, str | None]:
-    """Check if Ollama is running and accessible.
-
-    Returns:
-        Tuple of (is_healthy, error_message)
-    """
-    try:
-        client = _get_client()
-        # Try to list models as a health check
-        client.list()
-        return True, None
-    except RequestError as e:
-        return False, f"Connection refused. Is Ollama running? ({e})"
-    except ResponseError as e:
-        return False, f"Ollama error: {e}"
-    except Exception as e:
-        return False, f"Unknown error: {e}"
+    """Check if the LLM backend is healthy."""
+    return get_backend().check_health()
 
 
 # =============================================================================
-# Async Functions - Non-blocking versions for use with asyncio
+# Async Functions
 # =============================================================================
 
 
 async def call_llm_async(prompt: str, force_json: bool = False) -> str:
-    """
-    Async version of call_llm. Calls Ollama without blocking the event loop.
-
-    Args:
-        prompt: The prompt to send to the model
-        force_json: If True, use Ollama's JSON mode to force valid JSON output
-
-    Returns:
-        The model's response text
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_async_client()
-        s = get_settings()
-        logger.debug(
-            f"Async calling LLM with model={s.ollama_model}, force_json={force_json}"
-        )
-
-        kwargs = {
-            "model": s.ollama_model,
-            "prompt": prompt,
-            "options": {
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-        }
-
-        if force_json:
-            kwargs["format"] = "json"
-
-        response = await client.generate(**kwargs)
-        return response.response
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except TimeoutError:
-        raise LLMError(
-            f"Request timed out. The model may be slow or overloaded. "
-            f"Try increasing LOCALCOWORK_OLLAMA_TIMEOUT (current: {s.ollama_timeout}s)"
-        )
-    except ConnectionError as e:
-        raise LLMError(
-            f"Connection lost to Ollama. Check if Ollama is still running. Error: {e}"
-        )
-    except Exception as e:
-        error_str = str(e).lower()
-        if "timeout" in error_str:
-            raise LLMError(
-                f"Request timed out after {s.ollama_timeout}s. "
-                f"Model '{s.ollama_model}' may be slow. Try a smaller model or increase timeout."
-            )
-        elif "connection" in error_str or "refused" in error_str:
-            raise LLMError(
-                f"Cannot connect to Ollama at {s.ollama_url}. Is Ollama running? "
-                f"Start with: ollama serve"
-            )
-        elif "memory" in error_str or "oom" in error_str:
-            raise LLMError(
-                f"Out of memory loading model '{s.ollama_model}'. "
-                f"Try a smaller model like 'mistral' or 'llama3.2:3b'"
-            )
-        raise LLMError(f"LLM request failed: {e}")
+    """Async version of call_llm."""
+    return await get_backend().generate_async(prompt, force_json=force_json)
 
 
 async def call_llm_chat_async(
     messages: list[dict[str, str]], model: str | None = None
 ) -> str:
-    """
-    Async version of call_llm_chat.
-
-    Args:
-        messages: List of message dicts with 'role' and 'content' keys
-        model: Optional model override
-
-    Returns:
-        The assistant's response content
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_async_client()
-        s = get_settings()
-        active_model = model or s.ollama_model
-        logger.debug(
-            f"Async calling LLM chat with model={active_model}, {len(messages)} messages"
-        )
-
-        response = await client.chat(
-            model=active_model,
-            messages=messages,
-            options={
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-        )
-
-        return response.message.content
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except Exception as e:
-        raise LLMError(f"Async LLM chat request failed: {e}") from e
+    """Async version of call_llm_chat."""
+    return await get_backend().chat_async(messages, model=model)
 
 
 async def call_llm_json_async(prompt: str) -> dict[str, Any]:
-    """
-    Async version of call_llm_json. Guarantees valid JSON output.
-
-    Args:
-        prompt: The initial prompt to send
-
-    Returns:
-        Parsed JSON as a dictionary
-
-    Raises:
-        LLMError: If JSON parsing fails after all retries
-    """
+    """Async version of call_llm_json. Guarantees valid JSON output."""
     s = get_settings()
     max_retries = s.max_json_retries
 
@@ -531,7 +295,8 @@ async def call_llm_json_async(prompt: str) -> dict[str, Any]:
                 logger.info(f"Async JSON retry attempt {attempt + 1}/{max_retries + 1}")
                 current_prompt = (
                     prompt
-                    + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, no explanation. Start with { and end with }."
+                    + "\n\nREMINDER: Output ONLY valid JSON. No markdown, no code blocks, "
+                    "no explanation. Start with { and end with }."
                 )
 
             raw = await call_llm_async(current_prompt, force_json=True)
@@ -551,137 +316,28 @@ async def call_llm_json_async(prompt: str) -> dict[str, Any]:
                     "The AI model may be having trouble understanding the request. "
                     "Please try rephrasing."
                 )
+    # Unreachable, but keeps mypy happy
+    raise LLMError("JSON parsing exhausted all retries")  # pragma: no cover
 
 
 async def call_llm_stream_async(
     prompt: str, force_json: bool = False
 ) -> AsyncIterator[str]:
-    """
-    Async streaming version of call_llm. Yields tokens as they arrive.
-
-    Args:
-        prompt: The prompt to send to the model
-        force_json: If True, use Ollama's JSON mode
-
-    Yields:
-        String chunks of the response as they stream in
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_async_client()
-        s = get_settings()
-        logger.debug(f"Async streaming LLM with model={s.ollama_model}")
-
-        kwargs = {
-            "model": s.ollama_model,
-            "prompt": prompt,
-            "options": {
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-            "stream": True,
-        }
-
-        if force_json:
-            kwargs["format"] = "json"
-
-        async for chunk in await client.generate(**kwargs):
-            if chunk.response:
-                yield chunk.response
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except Exception as e:
-        raise LLMError(f"Async stream request failed: {e}")
+    """Async streaming text generation."""
+    async for chunk in get_backend().generate_stream_async(
+        prompt, force_json=force_json
+    ):
+        yield chunk
 
 
 async def call_llm_chat_stream_async(
-    messages: list[dict[str, str]], model: str = None
+    messages: list[dict[str, str]], model: str | None = None
 ) -> AsyncIterator[str]:
-    """
-    Async streaming chat. Yields tokens as they arrive from the model.
-
-    Args:
-        messages: List of message dicts with 'role' and 'content' keys
-        model: Optional model override
-
-    Yields:
-        String chunks of the response as they stream in
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_async_client()
-        s = get_settings()
-        active_model = model or s.ollama_model
-        logger.debug(
-            f"Async streaming chat with model={active_model}, {len(messages)} messages"
-        )
-
-        async for chunk in await client.chat(
-            model=active_model,
-            messages=messages,
-            options={
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-            stream=True,
-        ):
-            if chunk.message and chunk.message.content:
-                yield chunk.message.content
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except Exception as e:
-        raise LLMError(f"Async chat stream request failed: {e}")
+    """Async streaming chat."""
+    async for chunk in get_backend().chat_stream_async(messages, model=model):
+        yield chunk
 
 
-def call_llm_chat_stream(messages: list[dict[str, str]], model: str = None):
-    """
-    Stream chat responses from Ollama.
-
-    Args:
-        messages: List of message dicts with 'role' and 'content' keys
-        model: Optional model override
-
-    Yields:
-        String chunks of the response
-
-    Raises:
-        LLMError: If the LLM request fails.
-    """
-    try:
-        client = _get_client()
-        s = get_settings()
-        active_model = model or s.ollama_model
-        logger.debug(
-            f"Streaming LLM chat with model={active_model}, {len(messages)} messages"
-        )
-
-        stream = client.chat(
-            model=active_model,
-            messages=messages,
-            options={
-                "num_predict": s.max_tokens,
-                "num_ctx": s.num_ctx,
-            },
-            stream=True,
-        )
-
-        for chunk in stream:
-            if chunk.message and chunk.message.content:
-                yield chunk.message.content
-
-    except RequestError as e:
-        raise LLMError(f"Cannot connect to Ollama. Is it running? Error: {e}")
-    except ResponseError as e:
-        raise LLMError(f"Ollama error: {e}")
-    except Exception as e:
-        raise LLMError(f"LLM stream request failed: {e}")
+def call_llm_chat_stream(messages: list[dict[str, str]], model: str | None = None):
+    """Synchronous streaming chat."""
+    yield from get_backend().chat_stream(messages, model=model)

@@ -10,7 +10,9 @@ __all__ = [
     "__version__",
     "cli",
     "config",
+    "events",
     "llm",
     "orchestrator",
     "sandbox",
+    "tools",
 ]
