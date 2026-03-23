@@ -5,11 +5,19 @@ import contextlib
 import io
 import os
 import re as _re
-import readline  # noqa: F401 — enables arrow-key history in input()
 import shutil
 import sys
 import time
+from pathlib import Path
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import (
+    Completer,
+    Completion,
+    PathCompleter,
+    merge_completers,
+)
+from prompt_toolkit.history import FileHistory
 from rich import box
 from rich.live import Live
 from rich.panel import Panel
@@ -729,40 +737,86 @@ def _show_welcome(model: str):
     console.print(panel)
 
 
-def _get_input() -> str:
-    """Get user input with a blue rectangle box.
+# ── Slash-command completer ──────────────────────────────────────────
 
-    Uses readline-aware prompt so backspace/arrow keys respect boundaries.
-    After input, redraws the complete box with the entered text.
+_SLASH_COMMANDS = [
+    ("/help", "Show available commands"),
+    ("/clear", "Reset conversation"),
+    ("/status", "Connection & settings"),
+    ("/history", "Conversation history"),
+    ("/model ", "Switch model (e.g. /model llama3.2)"),
+    ("/quit", "Exit LocalCowork"),
+]
+
+
+class _SlashCompleter(Completer):
+    """Complete slash commands like /help, /model, etc."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        for cmd, desc in _SLASH_COMMANDS:
+            if cmd.startswith(text):
+                yield Completion(
+                    cmd,
+                    start_position=-len(text),
+                    display_meta=desc,
+                )
+
+
+def _build_completer() -> Completer:
+    """Build a merged completer: slash commands + file paths."""
+    return merge_completers(
+        [
+            _SlashCompleter(),
+            PathCompleter(expanduser=True),
+        ],
+        deduplicate=True,
+    )
+
+
+def _get_prompt_session() -> PromptSession:
+    """Create (or return cached) PromptSession with persistent history."""
+    global _prompt_session
+    if _prompt_session is not None:
+        return _prompt_session
+
+    history_dir = Path("~/.localcowork").expanduser()
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_file = history_dir / "cli_history"
+
+    _prompt_session = PromptSession(
+        history=FileHistory(str(history_file)),
+        completer=_build_completer(),
+        complete_while_typing=False,
+    )
+    return _prompt_session
+
+
+_prompt_session: PromptSession | None = None
+
+
+def _get_input() -> str:
+    """Get user input with prompt_toolkit.
+
+    Features:
+    - Persistent history across sessions (~/.localcowork/cli_history)
+    - Ctrl+R reverse history search
+    - Tab completion for slash commands and file paths
+    - Proper multi-line editing support
+    After input, redraws a clean box with the entered text.
     """
     width = _get_width()
     inner_width = width - 8
     max_input_len = inner_width - 5  # Space for "│ > " and " │"
 
     try:
-        # Draw full box frame: top, empty input line, bottom
-        console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
-        console.print(
-            f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
-        )
-        console.print(f"  [blue]╰{'─' * inner_width}╯[/blue]")
+        session = _get_prompt_session()
+        user_input = session.prompt("  > ")
 
-        # Move cursor up 2 lines (to the input row) and position after "> "
-        sys.stdout.write(
-            "\033[2A"
-        )  # Up 2 lines (bottom border + input row → input row)
-        sys.stdout.write("\033[6G")  # Column 6: past "  │ > "
-        sys.stdout.flush()
-
-        # Build a readline-safe prompt with zero visible width
-        # \001/\002 delimit non-printing sequences so readline knows
-        # the cursor hasn't moved (we already positioned it above)
-        prompt = "\001\002"
-
-        user_input = input(prompt)
-
-        # Move up to erase the full 3-line box + input, then redraw cleanly
-        sys.stdout.write("\033[3A")  # Up 3 lines (top border, input, bottom)
+        # Move up to erase the prompt line, then redraw as a clean box
+        sys.stdout.write("\033[1A")  # Up 1 line (the prompt line)
         sys.stdout.write("\033[J")  # Clear from cursor to end of screen
         sys.stdout.flush()
 
@@ -770,12 +824,10 @@ def _get_input() -> str:
         console.print(f"  [blue]╭{'─' * inner_width}╮[/blue]")
 
         if not user_input.strip():
-            # Empty input — show empty box
             console.print(
                 f"  [blue]│[/blue] [dim]>[/dim] {' ' * (inner_width - 5)}[blue]│[/blue]"
             )
         else:
-            # Render text, wrapping if needed
             remaining = user_input
             first_line = True
             while remaining:
@@ -834,7 +886,10 @@ def _show_help():
     help_group.add_row(cmds)
     help_group.add_row(Text(""))
     help_group.add_row(
-        Text("↑/↓ arrow keys cycle through previous inputs", style="dim")
+        Text(
+            "Tab completion for commands & file paths · Ctrl+R history search",
+            style="dim",
+        )
     )
 
     panel = Panel(

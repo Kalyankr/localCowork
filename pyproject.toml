@@ -24,6 +24,7 @@ dependencies = [
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
     "tiktoken>=0.8.0",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.optional-dependencies]
