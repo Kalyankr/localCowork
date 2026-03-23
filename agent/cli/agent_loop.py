@@ -307,6 +307,12 @@ def _process_input_agentic(
                     line.append("Searching the web...", style="cyan")
                 elif action.startswith("fetch_webpage:"):
                     line.append("Fetching webpage...", style="cyan")
+                elif action.startswith("read_file:"):
+                    line.append("Reading file...", style="green")
+                elif action.startswith("write_file:"):
+                    line.append("Writing file...", style="magenta")
+                elif action.startswith("edit_file:"):
+                    line.append("Editing file...", style="magenta")
                 else:
                     line.append("Executing...", style="cyan")
             else:
@@ -575,6 +581,15 @@ def _show_execution_steps(steps: list):
             elif action.tool == "web_search":
                 query = action.args.get("query", "")[:30]
                 action_str = f"[blue]🔍 {query}[/blue]"
+            elif action.tool == "read_file":
+                path = action.args.get("path", "")[:40]
+                action_str = f"[green]📄 {path}[/green]"
+            elif action.tool == "write_file":
+                path = action.args.get("path", "")[:40]
+                action_str = f"[magenta]✏  {path}[/magenta]"
+            elif action.tool == "edit_file":
+                path = action.args.get("path", "")[:40]
+                action_str = f"[magenta]✎ {path}[/magenta]"
             elif action.tool == "done":
                 action_str = "[green]✓ Done[/green]"
             else:

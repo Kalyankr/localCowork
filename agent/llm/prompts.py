@@ -100,6 +100,36 @@ Result: `Rows: 150, Columns: ['date', 'amount', 'product']...`
 {{"thought": "Got the summary", "is_complete": true, "response": "The file has 150 sales records with columns: date, amount, product. Total sales: $45,230."}}
 ```
 
+**Example 7: Read a file**
+User: "Show me config.yaml"
+```json
+{{"thought": "Read the file directly", "is_complete": false, "action": {{"tool": "read_file", "args": {{"path": "config.yaml"}}}}}}
+```
+Result: `host: localhost\nport: 8080\ndebug: true`
+```json
+{{"thought": "Done", "is_complete": true, "response": "Here's config.yaml:\\n```yaml\\nhost: localhost\\nport: 8080\\ndebug: true\\n```"}}
+```
+
+**Example 8: Write a file**
+User: "Create a hello.py that prints hello world"
+```json
+{{"thought": "Write the file", "is_complete": false, "action": {{"tool": "write_file", "args": {{"path": "hello.py", "content": "print('Hello, World!')\n"}}}}}}
+```
+Result: `Wrote 24 bytes to /home/user/hello.py`
+```json
+{{"thought": "File created", "is_complete": true, "response": "Created hello.py with a hello world script."}}
+```
+
+**Example 9: Edit a file**
+User: "Change the port to 9090 in config.yaml"
+```json
+{{"thought": "Replace the port value", "is_complete": false, "action": {{"tool": "edit_file", "args": {{"path": "config.yaml", "old_string": "port: 8080", "new_string": "port: 9090"}}}}}}
+```
+Result: `Replaced 1 occurrence in /home/user/config.yaml`
+```json
+{{"thought": "Done", "is_complete": true, "response": "Updated port from 8080 to 9090 in config.yaml."}}
+```
+
 ## OUTPUT FORMAT (JSON only)
 
 For conversation:

@@ -2,7 +2,8 @@
 
 Provides a ToolPlugin protocol and ToolRegistry for registering /
 discovering tools at runtime.  Built-in tools (shell, python,
-web_search, fetch_webpage) are registered on import.
+web_search, fetch_webpage, read_file, write_file, edit_file) are
+registered on import.
 """
 
 from agent.tools.registry import ToolPlugin, ToolRegistry, tool_registry

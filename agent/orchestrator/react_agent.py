@@ -50,6 +50,7 @@ from agent.orchestrator.agent_models import (
 from agent.orchestrator.models import StepResult
 from agent.permissions import (
     AccessLevel,
+    check_path_access,
     get_permission_error_message,
     validate_command_paths,
 )
@@ -944,6 +945,40 @@ class ReActAgent:
                         False,
                         f"🚫 Dangerous operation requires confirmation: {reason}",
                     )
+
+        elif action.tool in ("read_file", "write_file", "edit_file"):
+            raw_path = action.args.get("path", "")
+            if raw_path:
+                access_level = check_path_access(raw_path)
+
+                if access_level == AccessLevel.SENSITIVE:
+                    return (
+                        False,
+                        f"🔒 Access denied: {get_permission_error_message(raw_path, access_level)}",
+                    )
+
+                if access_level == AccessLevel.DENIED:
+                    return False, f"🚫 Path not allowed: {raw_path}"
+
+                if access_level == AccessLevel.NEEDS_CONFIRMATION:
+                    if self.on_confirm:
+                        message = (
+                            f"⚠️ FILE ACCESS CONFIRMATION\n\n"
+                            f"Tool: {action.tool}\n"
+                            f"Path: {raw_path}\n\n"
+                            f"This path is outside your allowed directories.\n"
+                            f"Do you want to allow this? (y/N)"
+                        )
+                        confirmed = await self.on_confirm(
+                            raw_path, "Path outside allowed directories", message
+                        )
+                        if not confirmed:
+                            return False, f"❌ File access denied by user: {raw_path}"
+                    elif self.require_confirmation:
+                        return (
+                            False,
+                            f"🚫 File access requires confirmation: {raw_path}",
+                        )
 
         return True, None
 
