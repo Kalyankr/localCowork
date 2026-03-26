@@ -313,6 +313,10 @@ def _process_input_agentic(
                     line.append("Writing file...", style="magenta")
                 elif action.startswith("edit_file:"):
                     line.append("Editing file...", style="magenta")
+                elif action.startswith("memory_store:"):
+                    line.append("Storing memory...", style="yellow")
+                elif action.startswith("memory_recall:"):
+                    line.append("Recalling memories...", style="yellow")
                 else:
                     line.append("Executing...", style="cyan")
             else:
@@ -590,6 +594,12 @@ def _show_execution_steps(steps: list):
             elif action.tool == "edit_file":
                 path = action.args.get("path", "")[:40]
                 action_str = f"[magenta]✎ {path}[/magenta]"
+            elif action.tool == "memory_store":
+                key = action.args.get("key", "")[:30]
+                action_str = f"[yellow]💾 {key}[/yellow]"
+            elif action.tool == "memory_recall":
+                query = action.args.get("query", "") or action.args.get("key", "")
+                action_str = f"[yellow]🧠 {query[:30]}[/yellow]"
             elif action.tool == "done":
                 action_str = "[green]✓ Done[/green]"
             else:

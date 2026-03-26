@@ -130,6 +130,29 @@ Result: `Replaced 1 occurrence in /home/user/config.yaml`
 {{"thought": "Done", "is_complete": true, "response": "Updated port from 8080 to 9090 in config.yaml."}}
 ```
 
+**Example 10: Store a memory**
+User: "Remember that this project uses pytest for testing"
+```json
+{{"thought": "Store this project fact for future sessions", "is_complete": false, "action": {{"tool": "memory_store", "args": {{"key": "project_test_framework", "value": "This project uses pytest for testing", "category": "project"}}}}}}
+```
+Result: `Remembered [project] project_test_framework = This project uses pytest for testing`
+```json
+{{"thought": "Done", "is_complete": true, "response": "Got it! I'll remember that this project uses pytest."}}
+```
+
+**Example 11: Recall memories**
+User: "What do you remember about this project?"
+```json
+{{"thought": "Search memories for project info", "is_complete": false, "action": {{"tool": "memory_recall", "args": {{"category": "project"}}}}}}
+```
+Result: `- [project] project_test_framework: This project uses pytest\n- [project] project_language: Python 3.12`
+```json
+{{"thought": "Found project memories", "is_complete": true, "response": "Here's what I remember:\\n- Test framework: pytest\\n- Language: Python 3.12"}}
+```
+
+## PERSISTENT MEMORY
+{agent_memories}
+
 ## OUTPUT FORMAT (JSON only)
 
 For conversation:

@@ -1,4 +1,4 @@
-"""Built-in tool plugins: shell, python, web_search, fetch_webpage, read_file, write_file, edit_file.
+"""Built-in tool plugins: shell, python, web_search, fetch_webpage, read_file, write_file, edit_file, memory_store, memory_recall.
 
 Each tool class satisfies the ToolPlugin protocol and encapsulates
 only the core execution logic.  Safety checking and error sanitisation
@@ -172,6 +172,8 @@ def register_builtin_tools(sandbox: Sandbox) -> None:
     tool_registry.register(ReadFileTool())
     tool_registry.register(WriteFileTool())
     tool_registry.register(EditFileTool())
+    tool_registry.register(MemoryStoreTool())
+    tool_registry.register(MemoryRecallTool())
 
 
 # ---------------------------------------------------------------------------
@@ -442,3 +444,110 @@ class EditFileTool:
             "status": "success",
             "output": f"Replaced 1 occurrence in {filepath}",
         }
+
+
+# ---------------------------------------------------------------------------
+# Memory store tool
+# ---------------------------------------------------------------------------
+
+
+class MemoryStoreTool:
+    """Store a key/value fact in persistent memory (survives across sessions)."""
+
+    name = "memory_store"
+    description = (
+        "Remember a fact for future sessions. "
+        "Use to store user preferences, project context, or key learnings."
+    )
+    args_schema = {
+        "key": "short unique identifier (e.g. 'project_language')",
+        "value": "the fact to remember",
+        "category": "(optional) category: general, preference, project, tool (default: general)",
+    }
+
+    async def execute(
+        self, args: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        key = args.get("key", "").strip()
+        value = args.get("value", "").strip()
+        category = args.get("category", "general").strip()
+
+        if not key:
+            return {"status": "error", "output": None, "error": "key is required"}
+        if not value:
+            return {"status": "error", "output": None, "error": "value is required"}
+        if category not in ("general", "preference", "project", "tool"):
+            category = "general"
+
+        from agent.orchestrator.database import get_database
+
+        try:
+            db = await get_database()
+            await db.store_memory(key, value, category)
+        except Exception as e:
+            return {"status": "error", "output": None, "error": f"DB error: {e}"}
+
+        return {
+            "status": "success",
+            "output": f"Remembered [{category}] {key} = {value}",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Memory recall tool
+# ---------------------------------------------------------------------------
+
+
+class MemoryRecallTool:
+    """Search or list facts from persistent memory."""
+
+    name = "memory_recall"
+    description = (
+        "Recall stored facts from memory. "
+        "Search by keyword or list all memories in a category."
+    )
+    args_schema = {
+        "query": "(optional) search term to find relevant memories",
+        "key": "(optional) exact key to retrieve",
+        "category": "(optional) filter by category: general, preference, project, tool",
+        "limit": "(optional) max results, default 10",
+    }
+
+    async def execute(
+        self, args: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        query = args.get("query", "").strip()
+        key = args.get("key", "").strip()
+        category = args.get("category", "").strip() or None
+        limit = int(args.get("limit", 10))
+
+        from agent.orchestrator.database import get_database
+
+        try:
+            db = await get_database()
+
+            if key:
+                mem = await db.get_memory(key)
+                if mem:
+                    return {
+                        "status": "success",
+                        "output": f"{mem['key']}: {mem['value']}",
+                    }
+                return {
+                    "status": "success",
+                    "output": f"No memory found for key '{key}'",
+                }
+
+            if query:
+                results = await db.search_memories(query, limit=limit)
+            else:
+                results = await db.list_memories(category=category, limit=limit)
+
+            if not results:
+                return {"status": "success", "output": "No memories found."}
+
+            lines = [f"- [{r['category']}] {r['key']}: {r['value']}" for r in results]
+            return {"status": "success", "output": "\n".join(lines)}
+
+        except Exception as e:
+            return {"status": "error", "output": None, "error": f"DB error: {e}"}

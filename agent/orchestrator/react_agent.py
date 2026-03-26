@@ -809,6 +809,7 @@ class ReActAgent:
             cwd=os.getcwd(),
             platform=f"{platform.system()} {platform.release()}",
             tool_descriptions=tool_registry.get_tool_descriptions(),
+            agent_memories=await self._load_memories(),
         )
 
         try:
@@ -1130,6 +1131,20 @@ class ReActAgent:
             lines.append(f"{prefix} {content}")
 
         return "\n".join(lines)
+
+    async def _load_memories(self) -> str:
+        """Load recent memories from the database for prompt injection."""
+        try:
+            from agent.orchestrator.database import get_database
+
+            db = await get_database()
+            memories = await db.list_memories(limit=20)
+            if not memories:
+                return "(no stored memories yet — use memory_store to save facts)"
+            lines = [f"- [{m['category']}] {m['key']}: {m['value']}" for m in memories]
+            return "\n".join(lines)
+        except Exception:
+            return "(memory unavailable)"
 
     def _format_observation(self, obs: Observation) -> str:
         """Format an observation for the prompt."""

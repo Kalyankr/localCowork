@@ -79,6 +79,7 @@ async def lifespan(application: FastAPI):
         )
 
     logger.info("server_startup", model=model, version=__version__)
+    app.state.start_time = time.time()
     yield
 
     # --- Graceful shutdown ---
@@ -684,8 +685,40 @@ async def cancel_task(task_id: str, _auth: bool = Depends(verify_api_key)):
 
 @app.get("/health")
 async def health():
-    """Health check."""
-    return {"status": "ok", "version": __version__}
+    """Health check with component status."""
+    from agent.llm.client import check_ollama_health
+    from agent.orchestrator.database import get_database
+
+    # Ollama check
+    ollama_ok, ollama_err = check_ollama_health()
+
+    # DB check
+    db_ok = True
+    memory_count = 0
+    try:
+        db = await get_database()
+        mems = await db.list_memories(limit=0)
+        memory_count = len(mems)
+    except Exception:
+        db_ok = False
+
+    # Active tasks
+    tm = get_task_manager()
+    active = len(tm.get_tasks(states=[TMState.EXECUTING, TMState.PLANNING]))
+
+    # Uptime
+    uptime = time.time() - getattr(app.state, "start_time", time.time())
+
+    overall = "healthy" if (ollama_ok and db_ok) else "degraded"
+
+    return {
+        "status": overall,
+        "version": __version__,
+        "uptime_seconds": round(uptime, 1),
+        "ollama": {"ok": ollama_ok, "error": ollama_err},
+        "database": {"ok": db_ok, "memories": memory_count},
+        "active_tasks": active,
+    }
 
 
 # =============================================================================

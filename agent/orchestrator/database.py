@@ -16,7 +16,7 @@ from agent.config import settings
 logger = structlog.get_logger(__name__)
 
 # Schema version for future migrations
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -52,6 +52,25 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_timestamp ON conversations(timestamp);
+
+-- Agent memories: persistent key/value facts across sessions
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key);
+"""
+
+# FTS5 virtual table (created separately — not idempotent with executescript)
+_FTS_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+USING fts5(key, value, category, content=memories, content_rowid=id);
 """
 
 
@@ -75,6 +94,8 @@ class Database:
         await self._connection.execute("PRAGMA foreign_keys=ON")
 
         await self._connection.executescript(_SCHEMA_SQL)
+        # FTS5 virtual table (must be separate from executescript)
+        await self._connection.execute(_FTS_SQL)
 
         # Check / set schema version
         async with self._connection.execute(
@@ -243,6 +264,125 @@ class Database:
         )
         await self.conn.commit()
 
+    # ── Memory operations ─────────────────────────────────────────────
+
+    async def store_memory(
+        self, key: str, value: str, category: str = "general"
+    ) -> None:
+        """Store or update a memory fact.
+
+        If a memory with the same key already exists it is updated.
+        The FTS index is kept in sync via manual triggers.
+        """
+        import time as _time
+
+        now = _time.time()
+        # Check if key exists
+        async with self.conn.execute(
+            "SELECT id FROM memories WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+
+        if row:
+            rid = row[0]
+            # Remove old FTS entry, then update row, then re-insert FTS
+            await self.conn.execute("DELETE FROM memories_fts WHERE rowid = ?", (rid,))
+            await self.conn.execute(
+                "UPDATE memories SET value = ?, category = ?, updated_at = ? WHERE id = ?",
+                (value, category, now, rid),
+            )
+            await self.conn.execute(
+                "INSERT INTO memories_fts(rowid, key, value, category) VALUES (?, ?, ?, ?)",
+                (rid, key, value, category),
+            )
+        else:
+            await self.conn.execute(
+                """INSERT INTO memories (key, value, category, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (key, value, category, now, now),
+            )
+            # Get the rowid for FTS
+            async with self.conn.execute("SELECT last_insert_rowid()") as cur:
+                rid_row = await cur.fetchone()
+            rid = rid_row[0]
+            await self.conn.execute(
+                "INSERT INTO memories_fts(rowid, key, value, category) VALUES (?, ?, ?, ?)",
+                (rid, key, value, category),
+            )
+
+        await self.conn.commit()
+        logger.debug("memory_stored", key=key, category=category)
+
+    async def search_memories(self, query: str, limit: int = 10) -> list[dict]:
+        """Full-text search over stored memories."""
+        async with self.conn.execute(
+            """SELECT m.key, m.value, m.category, m.updated_at
+               FROM memories_fts f
+               JOIN memories m ON f.rowid = m.id
+               WHERE memories_fts MATCH ?
+               ORDER BY rank
+               LIMIT ?""",
+            (query, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {"key": r[0], "value": r[1], "category": r[2], "updated_at": r[3]}
+            for r in rows
+        ]
+
+    async def get_memory(self, key: str) -> dict | None:
+        """Retrieve a specific memory by exact key."""
+        async with self.conn.execute(
+            "SELECT key, value, category, updated_at FROM memories WHERE key = ?",
+            (key,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return {
+                "key": row[0],
+                "value": row[1],
+                "category": row[2],
+                "updated_at": row[3],
+            }
+        return None
+
+    async def delete_memory(self, key: str) -> bool:
+        """Delete a memory by key. Returns True if it existed."""
+        async with self.conn.execute(
+            "SELECT id FROM memories WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return False
+        rid = row[0]
+        await self.conn.execute("DELETE FROM memories_fts WHERE rowid = ?", (rid,))
+        await self.conn.execute("DELETE FROM memories WHERE id = ?", (rid,))
+        await self.conn.commit()
+        return True
+
+    async def list_memories(
+        self, category: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        """List stored memories, optionally filtered by category."""
+        if category:
+            async with self.conn.execute(
+                """SELECT key, value, category, updated_at FROM memories
+                   WHERE category = ? ORDER BY updated_at DESC LIMIT ?""",
+                (category, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+        else:
+            async with self.conn.execute(
+                """SELECT key, value, category, updated_at FROM memories
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (limit,),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            {"key": r[0], "value": r[1], "category": r[2], "updated_at": r[3]}
+            for r in rows
+        ]
+
 
 # ── Synchronous helpers (for CLI / non-async callers) ────────────────
 
@@ -256,6 +396,7 @@ def get_sync_connection(db_path: str | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(_SCHEMA_SQL)
+    conn.execute(_FTS_SQL)
     # Ensure schema version
     row = conn.execute("SELECT version FROM schema_version").fetchone()
     if row is None:

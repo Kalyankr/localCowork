@@ -19,12 +19,16 @@ class TestHealthEndpoint:
     """Tests for the /health endpoint."""
 
     def test_health_returns_ok(self, client):
-        """Health endpoint should return OK status."""
+        """Health endpoint should return status and version."""
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "ok"
+        assert data["status"] in ("healthy", "degraded")
         assert "version" in data
+        assert "uptime_seconds" in data
+        assert "ollama" in data
+        assert "database" in data
+        assert "active_tasks" in data
 
 
 class TestRootEndpoint:
