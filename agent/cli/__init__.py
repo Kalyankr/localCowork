@@ -1,8 +1,9 @@
 """LocalCowork CLI - Pure agentic interface.
 
-Two ways to use:
+Three ways to use:
 - `localcowork` - Terminal agent (interactive)
 - `localcowork serve` - Web UI
+- `localcowork doctor` - Diagnose setup
 """
 
 import warnings
@@ -57,6 +58,7 @@ def main(
     Examples:
         localcowork                   # Start agent
         localcowork serve             # Start web UI
+        localcowork doctor            # Check setup
     """
     # Skip if subcommand (like serve)
     if ctx.invoked_subcommand is not None:
@@ -92,6 +94,17 @@ def serve(
         reload=True,
         log_level="warning",
     )
+
+
+@app.command()
+def doctor():
+    """Diagnose your LocalCowork setup.
+
+    Checks Ollama, model, Docker, database, disk space, and Python version.
+    """
+    from agent.cli.doctor import run_doctor
+
+    run_doctor()
 
 
 def cli():
