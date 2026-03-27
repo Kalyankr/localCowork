@@ -37,11 +37,19 @@ task_manager = get_task_manager()
 
 
 class ConnectionManager:
-    """Manages WebSocket connections and task subscriptions."""
+    """Manages WebSocket connections and task subscriptions.
+
+    Also tracks in-flight task step history so reconnecting clients
+    can receive a ``state_sync`` message with the progress so far.
+    """
 
     def __init__(self):
         self.connections: set[WebSocket] = set()
         self.task_subs: dict[str, set[WebSocket]] = defaultdict(set)
+        # In-flight step history keyed by task_id → list of progress dicts
+        self._task_steps: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        # Pending confirmation requests keyed by task_id
+        self._pending_confirms: dict[str, dict[str, Any]] = {}
 
     async def connect(self, ws: WebSocket):
         """Accept a new WebSocket connection."""
@@ -57,6 +65,33 @@ class ConnectionManager:
     def subscribe(self, ws: WebSocket, task_id: str):
         """Subscribe a connection to task updates."""
         self.task_subs[task_id].add(ws)
+
+    def record_step(self, task_id: str, step: dict[str, Any]) -> None:
+        """Record a progress step for state-sync on reconnect."""
+        self._task_steps[task_id].append(step)
+
+    def record_pending_confirm(
+        self, task_id: str, confirm: dict[str, Any] | None
+    ) -> None:
+        """Track (or clear) a pending confirmation for a task."""
+        if confirm is None:
+            self._pending_confirms.pop(task_id, None)
+        else:
+            self._pending_confirms[task_id] = confirm
+
+    def clear_task_state(self, task_id: str) -> None:
+        """Remove tracked state for a finished/cancelled task."""
+        self._task_steps.pop(task_id, None)
+        self._pending_confirms.pop(task_id, None)
+
+    def get_state_sync_data(
+        self, task_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """Return (steps, pending_confirm) for a task."""
+        return (
+            list(self._task_steps.get(task_id, [])),
+            self._pending_confirms.get(task_id),
+        )
 
     async def broadcast(self, task_id: str, msg: WebSocketMessage | dict):
         """Broadcast a message to all subscribers of a task."""
@@ -120,6 +155,34 @@ def _validate_task_id(task_id: Any) -> str | None:
     return sanitized or None
 
 
+async def _send_state_sync(websocket: WebSocket, task_id: str) -> None:
+    """Send a state_sync message if the task is currently in-flight.
+
+    Called right after a client subscribes (or re-subscribes after reconnect)
+    so it can recover the progress it missed.
+    """
+    task = task_manager.get_task(task_id)
+    if not task:
+        return
+
+    # Only sync for tasks that are still executing
+    if task.state not in (TMState.EXECUTING, TMState.PLANNING):
+        return
+
+    steps, pending = ws_manager.get_state_sync_data(task_id)
+    sync_msg = WebSocketMessage.state_sync(
+        task_id=task_id,
+        task_state=task.state.value,
+        request=task.request,
+        steps=steps,
+        pending_confirm=pending,
+    )
+    try:
+        await websocket.send_json(sync_msg.model_dump())
+    except Exception:
+        pass  # Connection may have closed
+
+
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time task updates.
 
@@ -162,6 +225,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         ws_manager.subscribe(websocket, task_id)
                         response = WebSocketMessage.subscribed(task_id)
                         await websocket.send_json(response.model_dump())
+
+                        # Send state sync if task is in-flight
+                        await _send_state_sync(websocket, task_id)
                     else:
                         error = WebSocketMessage.error(
                             "Valid task_id required for subscribe"
@@ -252,7 +318,14 @@ async def stream_task(websocket: WebSocket, task_id: str):
         )
 
         async def on_progress(iteration: int, status: str, thought: str, action: str):
-            """Stream progress updates."""
+            """Stream progress updates and record for state-sync."""
+            step_data = {
+                "iteration": iteration,
+                "status": status,
+                "thought": thought,
+                "action": action,
+            }
+            ws_manager.record_step(task.id, step_data)
             try:
                 await websocket.send_json(
                     WebSocketMessage.stream_thought(
@@ -276,16 +349,17 @@ async def stream_task(websocket: WebSocket, task_id: str):
             """Request confirmation via WebSocket."""
             confirm_id = str(uuid.uuid4())
 
-            await websocket.send_json(
-                {
-                    "type": "confirm_request",
-                    "confirm_id": confirm_id,
-                    "task_id": task.id,
-                    "command": command[:200],
-                    "reason": reason,
-                    "message": message,
-                }
-            )
+            confirm_data = {
+                "type": "confirm_request",
+                "confirm_id": confirm_id,
+                "task_id": task.id,
+                "command": command[:200],
+                "reason": reason,
+                "message": message,
+            }
+            ws_manager.record_pending_confirm(task.id, confirm_data)
+
+            await websocket.send_json(confirm_data)
 
             try:
                 # Wait for confirmation response
@@ -295,6 +369,8 @@ async def stream_task(websocket: WebSocket, task_id: str):
                 return response.get("confirmed", False)
             except TimeoutError:
                 return False
+            finally:
+                ws_manager.record_pending_confirm(task.id, None)
 
         history = await get_history(session_id)
         conv = [{"role": m.role, "content": m.content} for m in history]
@@ -386,6 +462,9 @@ async def stream_task(websocket: WebSocket, task_id: str):
                 "steps": len(state.steps),
             }
         )
+
+        # Clean up tracked state now that task is done
+        ws_manager.clear_task_state(task.id)
 
     except WebSocketDisconnect:
         logger.info("stream_client_disconnected", task_id=task_id)

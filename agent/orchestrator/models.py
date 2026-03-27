@@ -116,6 +116,7 @@ class WSMessageType(str, Enum):
     STREAM_END = "stream_end"
     STREAM_THOUGHT = "stream_thought"
     STREAM_ACTION = "stream_action"
+    STATE_SYNC = "state_sync"
 
 
 class WebSocketMessage(BaseModel):
@@ -216,4 +217,27 @@ class WebSocketMessage(BaseModel):
             type=WSMessageType.STREAM_ACTION,
             task_id=task_id,
             data={"tool": tool, "args": args},
+        )
+
+    @classmethod
+    def state_sync(
+        cls,
+        task_id: str,
+        task_state: str,
+        request: str,
+        steps: list[dict[str, Any]],
+        pending_confirm: dict[str, Any] | None = None,
+    ) -> "WebSocketMessage":
+        """Send full task state for reconnection recovery."""
+        data: dict[str, Any] = {
+            "task_state": task_state,
+            "request": request,
+            "steps": steps,
+        }
+        if pending_confirm:
+            data["pending_confirm"] = pending_confirm
+        return cls(
+            type=WSMessageType.STATE_SYNC,
+            task_id=task_id,
+            data=data,
         )

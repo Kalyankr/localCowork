@@ -65,16 +65,30 @@ const sidebar = document.getElementById('sidebar');
 // WebSocket Connection
 // =============================================================================
 
+let reconnectAttempt = 0;
+const MAX_RECONNECT_DELAY = 30000;
+
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
     
     updateStatus('connecting');
     
-    ws.onopen = () => updateStatus('connected');
+    ws.onopen = () => {
+        updateStatus('connected');
+        reconnectAttempt = 0;
+        // Re-subscribe to current task for state recovery
+        if (currentTaskId && isProcessing) {
+            ws.send(JSON.stringify({ type: 'subscribe', task_id: currentTaskId }));
+        }
+    };
     ws.onclose = () => {
         updateStatus('disconnected');
-        setTimeout(connectWebSocket, 3000);
+        // Exponential backoff with jitter, capped at MAX_RECONNECT_DELAY
+        const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempt), MAX_RECONNECT_DELAY);
+        const jitter = delay * 0.3 * Math.random();
+        reconnectAttempt++;
+        setTimeout(connectWebSocket, delay + jitter);
     };
     ws.onerror = () => updateStatus('disconnected');
     ws.onmessage = (e) => handleWsMessage(JSON.parse(e.data));
@@ -88,12 +102,42 @@ function updateStatus(status) {
 
 function handleWsMessage(msg) {
     console.log('WS:', msg);
-    if (msg.type === 'progress' && msg.task_id === currentTaskId) {
+    if (msg.type === 'state_sync' && msg.task_id === currentTaskId) {
+        handleStateSync(msg);
+    } else if (msg.type === 'progress' && msg.task_id === currentTaskId) {
         updateProgress(msg);
     } else if (msg.type === 'complete' && msg.task_id === currentTaskId) {
         finishTask(msg);
     } else if (msg.type === 'confirm_request') {
         showConfirmModal(msg);
+    }
+}
+
+function handleStateSync(msg) {
+    const data = msg.data || {};
+    console.log('State sync received:', data.task_state, data.steps?.length, 'steps');
+    
+    // Rebuild step progress from recovered state
+    if (data.steps && data.steps.length > 0) {
+        stepResults = [];
+        // Ensure progress indicator is showing
+        if (!document.getElementById('progress-indicator')) {
+            showProgress();
+        }
+        // Replay the step history to rebuild the progress dots
+        for (const step of data.steps) {
+            if (step.status === 'success' || step.status === 'error') {
+                stepResults.push(step.status);
+            }
+        }
+        // Show last step's info
+        const lastStep = data.steps[data.steps.length - 1];
+        updateProgress(lastStep);
+    }
+    
+    // Re-show pending confirmation if one was in-flight
+    if (data.pending_confirm) {
+        showConfirmModal(data.pending_confirm);
     }
 }
 

@@ -64,17 +64,16 @@ async def run_task(
     bind_task_context(task_id=task.id, session_id=session_id)
 
     async def on_progress(iteration: int, status: str, thought: str, action: str):
-        await ws_manager.broadcast(
-            task.id,
-            {
-                "type": "progress",
-                "task_id": task.id,
-                "iteration": iteration,
-                "status": status,
-                "thought": thought,
-                "action": action,
-            },
-        )
+        step_data = {
+            "type": "progress",
+            "task_id": task.id,
+            "iteration": iteration,
+            "status": status,
+            "thought": thought,
+            "action": action,
+        }
+        ws_manager.record_step(task.id, step_data)
+        await ws_manager.broadcast(task.id, step_data)
 
     try:
         history = await get_history(session_id)
@@ -90,18 +89,18 @@ async def run_task(
             event = asyncio.Event()
             pending_confirmations[confirm_id] = event
 
+            confirm_data = {
+                "type": "confirm_request",
+                "confirm_id": confirm_id,
+                "task_id": task.id,
+                "command": command[:200],
+                "reason": reason,
+                "message": message,
+            }
+            ws_manager.record_pending_confirm(task.id, confirm_data)
+
             # Send confirmation request to connected clients
-            await ws_manager.broadcast(
-                task.id,
-                {
-                    "type": "confirm_request",
-                    "confirm_id": confirm_id,
-                    "task_id": task.id,
-                    "command": command[:200],
-                    "reason": reason,
-                    "message": message,
-                },
-            )
+            await ws_manager.broadcast(task.id, confirm_data)
 
             # Wait for response (timeout after 60 seconds)
             try:
@@ -111,6 +110,7 @@ async def run_task(
                 logger.warning(f"Confirmation timeout for {confirm_id}")
                 return False  # Default to deny on timeout
             finally:
+                ws_manager.record_pending_confirm(task.id, None)
                 pending_confirmations.pop(confirm_id, None)
                 confirmation_results.pop(confirm_id, None)
 
@@ -143,6 +143,8 @@ async def run_task(
                 "response": state.final_answer,
             },
         )
+
+        ws_manager.clear_task_state(task.id)
 
         return {
             "task_id": task.id,

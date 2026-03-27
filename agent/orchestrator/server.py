@@ -256,6 +256,10 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.connections: set[WebSocket] = set()
         self.task_subs: dict[str, set[WebSocket]] = defaultdict(set)
+        # In-flight step history keyed by task_id
+        self._task_steps: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        # Pending confirmation requests keyed by task_id
+        self._pending_confirms: dict[str, dict[str, Any]] = {}
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -268,6 +272,30 @@ class ConnectionManager:
 
     def subscribe(self, ws: WebSocket, task_id: str) -> None:
         self.task_subs[task_id].add(ws)
+
+    def record_step(self, task_id: str, step: dict[str, Any]) -> None:
+        """Record a progress step for state-sync on reconnect."""
+        self._task_steps[task_id].append(step)
+
+    def record_pending_confirm(
+        self, task_id: str, confirm: dict[str, Any] | None
+    ) -> None:
+        if confirm is None:
+            self._pending_confirms.pop(task_id, None)
+        else:
+            self._pending_confirms[task_id] = confirm
+
+    def clear_task_state(self, task_id: str) -> None:
+        self._task_steps.pop(task_id, None)
+        self._pending_confirms.pop(task_id, None)
+
+    def get_state_sync_data(
+        self, task_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        return (
+            list(self._task_steps.get(task_id, [])),
+            self._pending_confirms.get(task_id),
+        )
 
     async def broadcast(self, task_id: str, msg: WebSocketMessage | dict) -> None:
         """Broadcast a typed message to all subscribers of a task."""
@@ -390,6 +418,22 @@ async def websocket_endpoint(websocket: WebSocket):
                         ws.subscribe(websocket, task_id)
                         response = WebSocketMessage.subscribed(task_id)
                         await websocket.send_json(response.model_dump())
+
+                        # Send state sync if task is in-flight
+                        task = task_manager.get_task(task_id)
+                        if task and task.state in (
+                            TMState.EXECUTING,
+                            TMState.PLANNING,
+                        ):
+                            steps, pending = ws.get_state_sync_data(task_id)
+                            sync_msg = WebSocketMessage.state_sync(
+                                task_id=task_id,
+                                task_state=task.state.value,
+                                request=task.request,
+                                steps=steps,
+                                pending_confirm=pending,
+                            )
+                            await websocket.send_json(sync_msg.model_dump())
                     else:
                         error = WebSocketMessage.error("task_id required for subscribe")
                         await websocket.send_json(error.model_dump())
