@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import platform
+import time
 from typing import Any
 
 import structlog
@@ -77,6 +78,18 @@ MAX_CONSECUTIVE_FAILURES = 3
 MAX_PARALLEL_SUBTASKS = 4
 # Reduced iterations for sub-agents (they handle smaller tasks)
 SUB_AGENT_MAX_ITERATIONS = 8
+# Per-tool timeout defaults (seconds) when not specified in config
+_TOOL_TIMEOUTS: dict[str, int] = {
+    "shell": 600,  # shell uses settings.shell_timeout
+    "python": 300,  # scripts may be long-running
+    "web_search": 30,
+    "fetch_webpage": 30,
+    "read_file": 10,
+    "write_file": 10,
+    "edit_file": 10,
+    "memory_store": 10,
+    "memory_recall": 10,
+}
 
 
 def _sanitize_error(error: str, tool: str = "command") -> str:
@@ -994,6 +1007,7 @@ class ReActAgent:
         self, action: Action, context: dict[str, Any]
     ) -> StepResult:
         """Execute a single action and return the result."""
+        t0 = time.monotonic()
         try:
             await event_bus.emit_async(TOOL_EXECUTE, tool=action.tool, args=action.args)
 
@@ -1004,6 +1018,7 @@ class ReActAgent:
                     step_id=f"action_{action.tool}",
                     status="error",
                     error=error,
+                    duration_ms=int((time.monotonic() - t0) * 1000),
                 )
 
             # Python special handling: inject context variables
@@ -1020,9 +1035,35 @@ class ReActAgent:
                     status="error",
                     error=f"Unknown tool: {action.tool}. "
                     f"Available: {', '.join(tool_names) or 'none'}.",
+                    duration_ms=int((time.monotonic() - t0) * 1000),
                 )
 
-            result = await tool.execute(action.args, context)
+            # Per-tool timeout: shell uses its own config, others use defaults
+            if action.tool == "shell":
+                timeout = settings.shell_timeout
+            else:
+                timeout = _TOOL_TIMEOUTS.get(action.tool, settings.tool_timeout)
+
+            try:
+                result = await asyncio.wait_for(
+                    tool.execute(action.args, context), timeout=timeout
+                )
+            except TimeoutError:
+                elapsed = int((time.monotonic() - t0) * 1000)
+                logger.warning(
+                    "tool_timeout",
+                    tool=action.tool,
+                    timeout=timeout,
+                    elapsed_ms=elapsed,
+                )
+                return StepResult(
+                    step_id=f"action_{action.tool}",
+                    status="error",
+                    error=f"Tool '{action.tool}' timed out after {timeout}s.",
+                    duration_ms=elapsed,
+                )
+
+            elapsed = int((time.monotonic() - t0) * 1000)
 
             if result["status"] == "error":
                 return StepResult(
@@ -1032,6 +1073,7 @@ class ReActAgent:
                     error=_sanitize_error(
                         result.get("error", "Unknown error"), action.tool
                     ),
+                    duration_ms=elapsed,
                 )
 
             output = result.get("output", "")
@@ -1039,13 +1081,47 @@ class ReActAgent:
             if action.tool == "python" and isinstance(output, str):
                 output = self._parse_python_output(output)
 
+            # Truncate large outputs to avoid ballooning context
+            output_size = len(str(output))
+            max_output = settings.max_tool_output
+            if isinstance(output, str) and len(output) > max_output:
+                output = (
+                    output[:max_output]
+                    + f"\n... (truncated, {output_size:,} chars total)"
+                )
+            elif isinstance(output, (dict, list)):
+                serialized = json.dumps(output, default=str)
+                if len(serialized) > max_output:
+                    output = (
+                        serialized[:max_output]
+                        + f"\n... (truncated, {len(serialized):,} chars total)"
+                    )
+                    output_size = len(serialized)
+
+            await event_bus.emit_async(
+                TOOL_RESULT,
+                tool=action.tool,
+                status="success",
+                duration_ms=elapsed,
+                output_size=output_size,
+            )
+            logger.info(
+                "tool_executed",
+                tool=action.tool,
+                duration_ms=elapsed,
+                output_size=output_size,
+            )
+
             return StepResult(
                 step_id=f"action_{action.tool}",
                 status="success",
                 output=output,
+                duration_ms=elapsed,
+                output_size=output_size,
             )
 
         except Exception as e:
+            elapsed = int((time.monotonic() - t0) * 1000)
             await event_bus.emit_async(
                 TOOL_RESULT, tool=action.tool, status="error", error=str(e)
             )
@@ -1053,6 +1129,7 @@ class ReActAgent:
                 step_id=f"action_{action.tool}",
                 status="error",
                 error=_sanitize_error(str(e), action.tool),
+                duration_ms=elapsed,
             )
 
     async def _reflect(self, state: AgentState) -> dict[str, Any]:
@@ -1166,16 +1243,33 @@ class ReActAgent:
 
     def _format_result(self, result: StepResult) -> str:
         """Format a step result for observation."""
+        # Build metadata suffix so the LLM can reason about execution
+        meta_parts: list[str] = []
+        if result.duration_ms:
+            if result.duration_ms >= 1000:
+                meta_parts.append(f"{result.duration_ms / 1000:.1f}s")
+            else:
+                meta_parts.append(f"{result.duration_ms}ms")
+        if result.output_size:
+            if result.output_size >= 1024:
+                meta_parts.append(f"{result.output_size / 1024:.1f}KB")
+            else:
+                meta_parts.append(f"{result.output_size}B")
+        meta = f" [{', '.join(meta_parts)}]" if meta_parts else ""
+
         if result.status == "success":
             output = result.output
             if isinstance(output, (dict, list)):
-                return truncate_to_tokens(
-                    json.dumps(output, indent=2, default=str), 250
+                return (
+                    truncate_to_tokens(json.dumps(output, indent=2, default=str), 250)
+                    + meta
                 )
-            return truncate_to_tokens(str(output), 250)
+            return truncate_to_tokens(str(output), 250) + meta
         else:
             # Return sanitized error message
-            return f"ERROR: {result.error}"  # Already sanitized by _sanitize_error
+            return (
+                f"ERROR: {result.error}{meta}"  # Already sanitized by _sanitize_error
+            )
 
     def _make_context_key(self, action: Action, iteration: int) -> str:
         """Generate a context key for storing action results."""
