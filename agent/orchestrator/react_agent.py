@@ -65,6 +65,7 @@ from agent.sandbox.sandbox_runner import Sandbox
 from agent.tokens import truncate_to_tokens
 from agent.tools.builtin import register_builtin_tools
 from agent.tools.registry import tool_registry
+from agent.tools.tool_selector import suggest_tools
 
 logger = structlog.get_logger(__name__)
 
@@ -808,7 +809,13 @@ class ReActAgent:
             ),
             cwd=os.getcwd(),
             platform=f"{platform.system()} {platform.release()}",
-            tool_descriptions=tool_registry.get_tool_descriptions(),
+            tool_descriptions=tool_registry.get_tool_descriptions(
+                suggest_tools(
+                    state.goal,
+                    tool_registry.get_tool_names(),
+                    used_tools=[s.action.tool for s in state.steps if s.action],
+                )
+            ),
             agent_memories=await self._load_memories(),
         )
 

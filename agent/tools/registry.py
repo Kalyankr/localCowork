@@ -69,10 +69,18 @@ class ToolRegistry:
         """Return names of all registered tools."""
         return list(self._tools.keys())
 
-    def get_tool_descriptions(self) -> str:
-        """Build the tool-documentation block for LLM prompts."""
+    def get_tool_descriptions(self, tool_names: list[str] | None = None) -> str:
+        """Build the tool-documentation block for LLM prompts.
+
+        Args:
+            tool_names: If provided, only include these tools.
+                        If *None*, include all registered tools.
+        """
+        include = set(tool_names) if tool_names is not None else None
         lines: list[str] = []
         for tool in self._tools.values():
+            if include is not None and tool.name not in include:
+                continue
             if tool.args_schema:
                 args_parts = ", ".join(
                     f'"{k}": "{v}"' for k, v in tool.args_schema.items()
