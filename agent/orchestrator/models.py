@@ -59,6 +59,8 @@ class StepResult(BaseModel):
     status: str
     output: Any | None = None
     error: str | None = None
+    duration_ms: int = 0
+    output_size: int = 0
 
 
 class TaskSummary(BaseModel):

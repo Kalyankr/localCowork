@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     context_limit_long: int = 1250
     output_limit: int = 12500
     shell_timeout: int = 600  # 10 minutes for shell commands
+    tool_timeout: int = 120  # Default timeout for all tools (seconds)
+    max_tool_output: int = 50_000  # Max chars kept from a single tool output
 
     # Execution Settings
     max_code_retries: int = 2
