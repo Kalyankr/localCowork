@@ -89,7 +89,12 @@ _TOOL_TIMEOUTS: dict[str, int] = {
     "edit_file": 10,
     "memory_store": 10,
     "memory_recall": 10,
+    "list_dir": 10,
 }
+
+# Tools whose output is purely a function of their args (idempotent reads).
+# Results are cached per-task-run via _tool_cache in context.
+_CACHEABLE_TOOLS = frozenset({"read_file", "list_dir"})
 
 
 def _sanitize_error(error: str, tool: str = "command") -> str:
@@ -1044,6 +1049,22 @@ class ReActAgent:
             else:
                 timeout = _TOOL_TIMEOUTS.get(action.tool, settings.tool_timeout)
 
+            # Check cache for idempotent tools
+            cache_key: str | None = None
+            if action.tool in _CACHEABLE_TOOLS:
+                cache_key = f"{action.tool}:{json.dumps(action.args, sort_keys=True)}"
+                tool_cache: dict[str, Any] = context.setdefault("_tool_cache", {})
+                if cache_key in tool_cache:
+                    cached = tool_cache[cache_key]
+                    logger.debug("tool_cache_hit", tool=action.tool, key=cache_key)
+                    return StepResult(
+                        step_id=f"action_{action.tool}",
+                        status="success",
+                        output=cached["output"],
+                        duration_ms=0,
+                        output_size=cached["output_size"],
+                    )
+
             try:
                 result = await asyncio.wait_for(
                     tool.execute(action.args, context), timeout=timeout
@@ -1111,6 +1132,11 @@ class ReActAgent:
                 duration_ms=elapsed,
                 output_size=output_size,
             )
+
+            # Store in cache for idempotent tools
+            if cache_key is not None:
+                tool_cache = context.setdefault("_tool_cache", {})
+                tool_cache[cache_key] = {"output": output, "output_size": output_size}
 
             return StepResult(
                 step_id=f"action_{action.tool}",
