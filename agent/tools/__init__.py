@@ -2,7 +2,7 @@
 
 Provides a ToolPlugin protocol and ToolRegistry for registering /
 discovering tools at runtime.  Built-in tools (shell, python,
-web_search, fetch_webpage, read_file, write_file, edit_file,
+web_search, fetch_webpage, list_dir, read_file, write_file, edit_file,
 memory_store, memory_recall) are registered on import.
 """
 

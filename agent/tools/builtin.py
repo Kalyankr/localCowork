@@ -174,6 +174,7 @@ def register_builtin_tools(sandbox: Sandbox) -> None:
     tool_registry.register(EditFileTool())
     tool_registry.register(MemoryStoreTool())
     tool_registry.register(MemoryRecallTool())
+    tool_registry.register(ListDirTool())
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,90 @@ def _is_binary(data: bytes, sample_size: int = 8192) -> bool:
 def _resolve_path(raw_path: str) -> Path:
     """Expand ~, resolve relative paths against CWD, and return absolute."""
     return Path(os.path.expanduser(raw_path)).resolve()
+
+
+# ---------------------------------------------------------------------------
+# Read file tool
+# ---------------------------------------------------------------------------
+
+
+class ListDirTool:
+    """List directory contents with metadata (size, type) as structured JSON."""
+
+    name = "list_dir"
+    description = "List files and directories at a path. Returns structured JSON with names, types, and sizes."
+    args_schema = {
+        "path": "directory path (absolute or relative)",
+        "pattern": "(optional) glob pattern to filter, e.g. '*.py'",
+        "recursive": "(optional) true to recurse into subdirectories",
+    }
+
+    async def execute(
+        self, args: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        raw_path = args.get("path", ".")
+        pattern = args.get("pattern", "")
+        recursive = str(args.get("recursive", "false")).lower() in ("true", "1", "yes")
+
+        dirpath = _resolve_path(raw_path)
+        if not dirpath.is_dir():
+            return {
+                "status": "error",
+                "output": None,
+                "error": f"Not a directory: {dirpath}",
+            }
+
+        entries: list[dict[str, Any]] = []
+        max_entries = 1000  # Safety cap
+
+        try:
+            if pattern:
+                glob_method = dirpath.rglob if recursive else dirpath.glob
+                items = glob_method(pattern)
+            elif recursive:
+                items = dirpath.rglob("*")
+            else:
+                items = dirpath.iterdir()
+
+            for item in items:
+                if len(entries) >= max_entries:
+                    break
+                try:
+                    stat = item.stat()
+                    entries.append(
+                        {
+                            "name": str(item.relative_to(dirpath)),
+                            "type": "dir" if item.is_dir() else "file",
+                            "size": stat.st_size if item.is_file() else None,
+                        }
+                    )
+                except (PermissionError, OSError):
+                    entries.append(
+                        {
+                            "name": str(item.relative_to(dirpath)),
+                            "type": "unknown",
+                            "size": None,
+                        }
+                    )
+
+            entries.sort(key=lambda e: (e["type"] != "dir", e["name"]))
+
+        except PermissionError:
+            return {
+                "status": "error",
+                "output": None,
+                "error": f"Permission denied: {dirpath}",
+            }
+
+        return {
+            "status": "success",
+            "output": {
+                "path": str(dirpath),
+                "count": len(entries),
+                "truncated": len(entries) >= max_entries,
+                "entries": entries,
+            },
+        }
 
 
 # ---------------------------------------------------------------------------
