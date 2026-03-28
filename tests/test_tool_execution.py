@@ -1,7 +1,6 @@
 """Tests for tool execution improvements: timeouts, truncation, and metrics."""
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -65,12 +64,13 @@ class TestToolTimeout:
         slow_tool.name = "slow_tool"
         slow_tool.execute = slow_execute
 
-        with patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS",
-            {"slow_tool": 0.05},
-        ), patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg:
+        with (
+            patch(
+                "agent.orchestrator.react_agent._TOOL_TIMEOUTS",
+                {"slow_tool": 0.05},
+            ),
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+        ):
             mock_reg.get.return_value = slow_tool
             action = Action(tool="slow_tool", args={})
             result = await agent._execute_action(action, {})
@@ -86,14 +86,17 @@ class TestToolTimeout:
 
         fast_tool = MagicMock()
         fast_tool.name = "fast_tool"
-        fast_tool.execute = AsyncMock(return_value={"status": "success", "output": "done"})
+        fast_tool.execute = AsyncMock(
+            return_value={"status": "success", "output": "done"}
+        )
 
-        with patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS",
-            {"fast_tool": 5},
-        ), patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg:
+        with (
+            patch(
+                "agent.orchestrator.react_agent._TOOL_TIMEOUTS",
+                {"fast_tool": 5},
+            ),
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+        ):
             mock_reg.get.return_value = fast_tool
             action = Action(tool="fast_tool", args={})
             result = await agent._execute_action(action, {})
@@ -113,11 +116,10 @@ class TestToolTimeout:
             return_value={"status": "success", "output": "ok"}
         )
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg:
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+        ):
             mock_settings.shell_timeout = 999
             mock_settings.max_tool_output = 50_000
             mock_reg.get.return_value = shell_tool
@@ -139,13 +141,11 @@ class TestToolTimeout:
             return_value={"status": "success", "output": "result"}
         )
 
-        with patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {}
-        ), patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg:
+        with (
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {}),
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+        ):
             mock_settings.tool_timeout = 60
             mock_settings.shell_timeout = 600
             mock_settings.max_tool_output = 50_000
@@ -179,12 +179,10 @@ class TestOutputTruncation:
             return_value={"status": "success", "output": big_output}
         )
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg, patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"big_tool": 30}
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"big_tool": 30}),
         ):
             mock_settings.max_tool_output = 1000
             mock_settings.shell_timeout = 600
@@ -209,12 +207,10 @@ class TestOutputTruncation:
             return_value={"status": "success", "output": "short result"}
         )
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg, patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"small_tool": 30}
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"small_tool": 30}),
         ):
             mock_settings.max_tool_output = 50_000
             mock_settings.shell_timeout = 600
@@ -234,16 +230,12 @@ class TestOutputTruncation:
         big_data = {"key": "v" * 100_000}
         tool = MagicMock()
         tool.name = "dict_tool"
-        tool.execute = AsyncMock(
-            return_value={"status": "success", "output": big_data}
-        )
+        tool.execute = AsyncMock(return_value={"status": "success", "output": big_data})
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg, patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"dict_tool": 30}
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"dict_tool": 30}),
         ):
             mock_settings.max_tool_output = 500
             mock_settings.shell_timeout = 600
@@ -275,12 +267,10 @@ class TestExecutionMetrics:
             return_value={"status": "success", "output": "hello world"}
         )
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg, patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"metric_tool": 30}
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"metric_tool": 30}),
         ):
             mock_settings.max_tool_output = 50_000
             mock_settings.shell_timeout = 600
@@ -302,12 +292,10 @@ class TestExecutionMetrics:
             return_value={"status": "error", "error": "something broke"}
         )
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg, patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"err_tool": 30}
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"err_tool": 30}),
         ):
             mock_settings.max_tool_output = 50_000
             mock_settings.shell_timeout = 600
@@ -327,12 +315,10 @@ class TestExecutionMetrics:
         tool.name = "crash_tool"
         tool.execute = AsyncMock(side_effect=RuntimeError("boom"))
 
-        with patch(
-            "agent.orchestrator.react_agent.settings"
-        ) as mock_settings, patch(
-            "agent.orchestrator.react_agent.tool_registry"
-        ) as mock_reg, patch(
-            "agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"crash_tool": 30}
+        with (
+            patch("agent.orchestrator.react_agent.settings") as mock_settings,
+            patch("agent.orchestrator.react_agent.tool_registry") as mock_reg,
+            patch("agent.orchestrator.react_agent._TOOL_TIMEOUTS", {"crash_tool": 30}),
         ):
             mock_settings.max_tool_output = 50_000
             mock_settings.shell_timeout = 600
@@ -460,9 +446,15 @@ class TestToolTimeoutDefaults:
         from agent.orchestrator.react_agent import _TOOL_TIMEOUTS
 
         expected_tools = [
-            "shell", "python", "web_search", "fetch_webpage",
-            "read_file", "write_file", "edit_file",
-            "memory_store", "memory_recall",
+            "shell",
+            "python",
+            "web_search",
+            "fetch_webpage",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "memory_store",
+            "memory_recall",
         ]
         for name in expected_tools:
             assert name in _TOOL_TIMEOUTS, f"Missing timeout for {name}"
