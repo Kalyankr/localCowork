@@ -59,7 +59,10 @@ async def verify_api_key(api_key: str = Depends(api_key_header)) -> bool:
 
 
 class RateLimiter:
-    """Simple in-memory rate limiter using sliding window."""
+    """In-memory sliding-window rate limiter.
+
+    Buckets are keyed by an arbitrary string (API key, session, IP, etc.).
+    """
 
     def __init__(self, max_requests: int = 60, window_seconds: int = 60):
         self.max_requests = max_requests
@@ -82,6 +85,13 @@ class RateLimiter:
         self.requests[client_id].append(now)
         return True
 
+    def remaining(self, client_id: str) -> int:
+        """Return how many requests are left in the current window."""
+        now = time.time()
+        window_start = now - self.window_seconds
+        recent = [ts for ts in self.requests.get(client_id, []) if ts > window_start]
+        return max(0, self.max_requests - len(recent))
+
     def get_retry_after(self, client_id: str) -> int:
         """Get seconds until rate limit resets."""
         if not self.requests[client_id]:
@@ -89,19 +99,48 @@ class RateLimiter:
         oldest = min(self.requests[client_id])
         return max(0, int(self.window_seconds - (time.time() - oldest)))
 
+    def reset(self, client_id: str | None = None) -> None:
+        """Clear rate-limit state. If *client_id* is None, clear everything."""
+        if client_id is None:
+            self.requests.clear()
+        else:
+            self.requests.pop(client_id, None)
+
 
 # Global rate limiter instance
 rate_limiter = RateLimiter(
-    max_requests=settings.rate_limit_requests, window_seconds=settings.rate_limit_window
+    max_requests=settings.rate_limit_requests,
+    window_seconds=settings.rate_limit_window,
 )
 
 
-async def check_rate_limit(request: Request) -> bool:
-    """Check rate limit for a request."""
-    client_ip = request.client.host if request.client else "unknown"
+def resolve_rate_limit_key(request: Request) -> str:
+    """Derive the rate-limit bucket key from the request.
 
-    if not rate_limiter.is_allowed(client_ip):
-        retry_after = rate_limiter.get_retry_after(client_ip)
+    Priority: API key header > session cookie > client IP.
+    This ensures each authenticated user gets their own quota.
+    """
+    # 1. API key (most specific — one key = one consumer)
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        return f"key:{api_key}"
+
+    # 2. Session cookie (browser users without API key)
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        return f"session:{session_id}"
+
+    # 3. Fallback to client IP
+    client_ip = request.client.host if request.client else "unknown"
+    return f"ip:{client_ip}"
+
+
+async def check_rate_limit(request: Request) -> bool:
+    """Check per-session rate limit for a request."""
+    key = resolve_rate_limit_key(request)
+
+    if not rate_limiter.is_allowed(key):
+        retry_after = rate_limiter.get_retry_after(key)
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded. Retry after {retry_after} seconds.",
