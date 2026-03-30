@@ -5,7 +5,6 @@ All task execution uses the ReAct agent (shell + python).
 
 import asyncio
 import json
-import secrets
 import time
 import uuid
 from collections import defaultdict
@@ -24,12 +23,15 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.security import APIKeyHeader
 from pydantic import ValidationError
 
 from agent.config import settings
 from agent.llm.client import LLMError
 from agent.orchestrator.deps import get_sandbox, get_task_manager
+from agent.orchestrator.middleware import (
+    check_rate_limit,
+    verify_api_key,
+)
 from agent.orchestrator.models import (
     ConversationMessage,
     TaskDetail,
@@ -131,35 +133,6 @@ app.add_middleware(
 )
 
 
-# =============================================================================
-# API Key Authentication (optional)
-# =============================================================================
-
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-async def verify_api_key(api_key: str = Depends(api_key_header)) -> bool:
-    """Verify API key if configured, otherwise allow all requests."""
-    if settings.api_key is None:
-        # No API key configured - allow all (localhost only by default)
-        return True
-
-    if api_key is None:
-        raise HTTPException(
-            status_code=401,
-            detail="API key required. Set X-API-Key header.",
-        )
-
-    # Use constant-time comparison to prevent timing attacks
-    if not secrets.compare_digest(api_key, settings.api_key):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid API key",
-        )
-
-    return True
-
-
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -174,62 +147,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             else "An unexpected error occurred",
         },
     )
-
-
-# =============================================================================
-# Rate Limiter (simple in-memory implementation)
-# =============================================================================
-
-
-class RateLimiter:
-    """Simple in-memory rate limiter using sliding window."""
-
-    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self.requests: dict[str, list[float]] = defaultdict(list)
-
-    def is_allowed(self, client_id: str) -> bool:
-        """Check if request is allowed for this client."""
-        now = time.time()
-        window_start = now - self.window_seconds
-
-        # Clean old requests
-        self.requests[client_id] = [
-            ts for ts in self.requests[client_id] if ts > window_start
-        ]
-
-        if len(self.requests[client_id]) >= self.max_requests:
-            return False
-
-        self.requests[client_id].append(now)
-        return True
-
-    def get_retry_after(self, client_id: str) -> int:
-        """Get seconds until rate limit resets."""
-        if not self.requests[client_id]:
-            return 0
-        oldest = min(self.requests[client_id])
-        return max(0, int(self.window_seconds - (time.time() - oldest)))
-
-
-rate_limiter = RateLimiter(
-    max_requests=settings.rate_limit_requests, window_seconds=settings.rate_limit_window
-)
-
-
-async def check_rate_limit(request: Request) -> bool:
-    """Check rate limit for a request."""
-    client_ip = request.client.host if request.client else "unknown"
-
-    if not rate_limiter.is_allowed(client_ip):
-        retry_after = rate_limiter.get_retry_after(client_ip)
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded. Retry after {retry_after} seconds.",
-            headers={"Retry-After": str(retry_after)},
-        )
-    return True
 
 
 # Shared dependencies - only sandbox needed for pure agentic execution
