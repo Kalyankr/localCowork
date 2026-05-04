@@ -67,8 +67,15 @@ from agent.tokens import truncate_to_tokens
 from agent.tools.builtin import register_builtin_tools
 from agent.tools.registry import tool_registry
 from agent.tools.tool_selector import suggest_tools
+from agent.trace.trainer import load_params
 
 logger = structlog.get_logger(__name__)
+
+# Default prompt values (used when no optimized params are loaded)
+_DEFAULT_PROMPT_PARAMS: dict[str, str] = {
+    "system_identity": "You are LocalCowork, an AI assistant with full access to the user's machine.",
+    "react_instruction": "Most tasks need 1-2 commands. Don't explore - act directly.",
+}
 
 # Maximum iterations to prevent infinite loops
 MAX_ITERATIONS = 15
@@ -205,6 +212,9 @@ class ReActAgent:
         self.steering_queue = steering_queue
         self._is_sub_agent = False  # Track if this is a sub-agent
         self._steering_inputs: list[str] = []  # Accumulated steering from user
+
+        # Load Trace-optimized prompt parameters (if available)
+        self._prompt_params = load_params() or _DEFAULT_PROMPT_PARAMS
 
         # Register built-in tools (idempotent — re-registers if already present)
         register_builtin_tools(sandbox)
@@ -835,6 +845,12 @@ class ReActAgent:
                 )
             ),
             agent_memories=await self._load_memories(),
+            system_identity=self._prompt_params.get(
+                "system_identity", _DEFAULT_PROMPT_PARAMS["system_identity"]
+            ),
+            react_instruction=self._prompt_params.get(
+                "react_instruction", _DEFAULT_PROMPT_PARAMS["react_instruction"]
+            ),
         )
 
         try:

@@ -8,7 +8,7 @@ This module contains prompts for the ReAct agent.
 # ReAct Agent Prompts
 # =============================================================================
 
-REACT_STEP_PROMPT = """You are LocalCowork, an AI assistant with full access to the user's machine.
+REACT_STEP_PROMPT = """{system_identity}
 
 ## ENVIRONMENT
 - Working Directory: {cwd}
@@ -40,7 +40,7 @@ Destructive operations (rm, delete, overwrite) will prompt user for confirmation
 You can proceed normally - the system handles safety checks.
 
 ## KEY RULE
-Most tasks need 1-2 commands. Don't explore - act directly.
+{react_instruction}
 
 ## EXAMPLES
 

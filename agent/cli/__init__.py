@@ -107,5 +107,65 @@ def doctor():
     run_doctor()
 
 
+@app.command()
+def optimize(
+    epochs: int = typer.Option(3, "--epochs", "-e", help="Training epochs"),
+    model: str = typer.Option("gpt-4o", "--model", "-m", help="Optimizer LLM model"),
+    verbose: bool = typer.Option(True, "--verbose/--quiet", help="Show progress"),
+):
+    """Optimize agent prompts using Microsoft Trace.
+
+    Runs evaluation tasks, scores results, and uses Trace's OptoPrime
+    optimizer to improve the agent's prompts and heuristics.
+
+    Requires: pip install localcowork[trace]
+    Requires: OPENAI_API_KEY or ANTHROPIC_API_KEY env var for the optimizer LLM.
+    """
+    import asyncio
+
+    try:
+        from agent.trace.trainer import run_training
+    except ImportError:
+        console.print(
+            "[red]trace-opt not installed.[/red] Run: pip install localcowork[trace]"
+        )
+        raise typer.Exit(1)
+
+    console.print(f"\n  {Icons.ROBOT} [bold]Trace Optimization[/bold]")
+    console.print(f"  Epochs: {epochs} | Optimizer model: {model}\n")
+
+    result = asyncio.run(
+        run_training(epochs=epochs, optimizer_model=model, verbose=verbose)
+    )
+
+    console.print(f"\n  [green]Best score: {result['best_score']}[/green]")
+    console.print("  Optimized parameters saved to ~/.localcowork/trace_params/\n")
+
+
+@app.command()
+def optimize_status():
+    """Show current Trace optimization status and saved parameters."""
+    from agent.trace.trainer import load_params
+
+    params = load_params()
+    if params:
+        console.print(f"\n  {Icons.ROBOT} [bold]Optimized Parameters[/bold]\n")
+        for key, value in params.items():
+            preview = value[:80] + "..." if len(value) > 80 else value
+            console.print(f"  [cyan]{key}[/cyan]: {preview}")
+        console.print()
+    else:
+        console.print("\n  No optimized parameters found. Run: localcowork optimize\n")
+
+
+@app.command()
+def optimize_reset():
+    """Clear saved Trace-optimized parameters (revert to defaults)."""
+    from agent.trace.trainer import clear_params
+
+    clear_params()
+    console.print("\n  Optimized parameters cleared. Using defaults.\n")
+
+
 def cli():
     app()
