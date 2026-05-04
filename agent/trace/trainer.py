@@ -236,9 +236,13 @@ def load_params() -> dict[str, str] | None:
     """Load optimized parameters if they exist."""
     path = _PARAMS_DIR / "optimized_params.json"
     if path.exists():
-        params = json.loads(path.read_text())
-        logger.info("trace_params_loaded", path=str(path))
-        return params
+        try:
+            params = json.loads(path.read_text())
+            logger.info("trace_params_loaded", path=str(path))
+            return params
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("trace_params_load_failed", path=str(path), error=str(e))
+            return None
     return None
 
 
