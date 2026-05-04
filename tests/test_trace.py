@@ -25,6 +25,7 @@ from agent.trace.trainer import clear_params, load_params, save_params
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _make_task(**overrides) -> EvalTask:
     defaults = dict(
         id="t1",
@@ -77,9 +78,7 @@ class TestScoreResult:
 
     def test_failed_task_scores_low(self):
         task = _make_task()
-        result = _make_result(
-            success=False, agent_status="failed", errors=["boom"]
-        )
+        result = _make_result(success=False, agent_status="failed", errors=["boom"])
         scored = score_result(task, result)
 
         assert scored["breakdown"]["completion"] == 0.0
@@ -201,9 +200,7 @@ class TestParamPersistence:
         assert loaded == params
 
     def test_load_returns_none_when_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "agent.trace.trainer._PARAMS_DIR", tmp_path / "nonexistent"
-        )
+        monkeypatch.setattr("agent.trace.trainer._PARAMS_DIR", tmp_path / "nonexistent")
         assert load_params() is None
 
     def test_clear_removes_file(self, tmp_path, monkeypatch):
@@ -215,9 +212,7 @@ class TestParamPersistence:
         assert load_params() is None
 
     def test_clear_noop_when_no_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "agent.trace.trainer._PARAMS_DIR", tmp_path / "nonexistent"
-        )
+        monkeypatch.setattr("agent.trace.trainer._PARAMS_DIR", tmp_path / "nonexistent")
         clear_params()  # should not raise
 
     def test_load_handles_corrupted_json(self, tmp_path, monkeypatch):
